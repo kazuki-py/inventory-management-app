@@ -9,7 +9,7 @@ from datetime import datetime
 #入出庫した瞬間の日時を取得
 SHEET_URL = st.secrets["connections"]["gsheets"]["spreadsheet"]#URLを隠す[]の所から持ってくる
 #ここから関数
-#履歴保存関数
+#履歴保存
 def history_save(condition, amount, item_name, stock_typ, current_stock):
     global history_data
     code_number = data.loc[condition, "資材コード"].iloc[0]
@@ -109,7 +109,7 @@ def stock_update(column_name,update_name):#商品情報更新用関数
     data.loc[data["資材コード"]== st.session_state["update_search_code"],column_name]=update_name
 
 #検索（更新と削除にも使用）
-def search_button_code(form_name,header_name,session_key):
+def search_button_code(form_name,header_name,target_name,session_key):
     #検索用フォーム→チェック→コード維持保存用関数
     with st.form(form_name, clear_on_submit=True,enter_to_submit=False):
         st.header(header_name)
@@ -120,10 +120,16 @@ def search_button_code(form_name,header_name,session_key):
     if submitted:#更新用、削除用それぞれに判定される
         if not code.isdigit() or len(code)!= 8:
                 st.error("資材コードは8桁の数字で入力してください") 
-        elif not code in data["資材コード"].values:
-            st.error("この資材コードは登録されていません")
+        if  header_name=="入出庫履歴":
+            if not code in target_name["資材コード"].values:
+                st.error("この資材コードの入出庫履歴はありません")
+            else:
+                st.session_state[session_key] = code
         else:
-            st.session_state[session_key] = code
+            if not code in target_name["資材コード"].values:
+                st.error("この資材コードは登録されていません")
+            else:
+                st.session_state[session_key] = code
 
 #ここから実行コード
 #保存関係
@@ -141,8 +147,10 @@ data["資材コード"] = (data["資材コード"].astype(int).astype(str).str.z
 data["型式・寸法"] = data["型式・寸法"].astype("object")#文字列など色々な値を入れられる型
 data["発注済み"] = data["発注済み"].fillna(0).astype(bool)#TrueかFalseで読み込む
 
-history_data = conn.read(spreadsheet=SHEET_URL, worksheet="入出庫履歴",ttl=0)
 #履歴データ
+history_data = conn.read(spreadsheet=SHEET_URL, worksheet="入出庫履歴",ttl=0)
+history_data = history_data.dropna(subset=["資材コード"])
+history_data["資材コード"] = (history_data["資材コード"].astype(int).astype(str).str.zfill(8))
 
 #メインタイトル
 st.title("在庫管理アプリ")
@@ -167,15 +175,22 @@ if submitted_stock:
 
 #在庫確認タブ
 with tab3:
-    search_tub,show_tub=st.tabs(["在庫検索","在庫一覧"])
+    search_tub,history_tub,show_tub=st.tabs(["在庫検索","入出庫履歴","在庫一覧"])
 
 #在庫検索
 with search_tub:
-    search_button_code("stock_search","在庫検索","search_code")
+    search_button_code("stock_search","在庫検索",data,"search_code")
     if "search_code" in st.session_state:
         st.subheader("商品情報")
         condition=data["資材コード"]==st.session_state["search_code"]
         st.dataframe(data.loc[condition].drop(columns=["発注済み","納入予定日"]),hide_index=True)
+#入出庫履歴
+with history_tub:
+    search_button_code("stock_history_search","入出庫履歴",history_data,"history_search_code")
+    if "history_search_code" in st.session_state:
+        st.subheader("入出庫履歴")
+        condition=history_data["資材コード"]==st.session_state["history_search_code"]
+        st.dataframe(history_data.loc[condition],hide_index=True)
 
 #在庫一覧
 with show_tub:
@@ -249,7 +264,7 @@ if submitted:
 
 #商品情報更新（検索機能・更新フォーム・更新チェックあり）
 with update_tab:
-    search_button_code("stock_update_search","商品情報更新","update_search_code")
+    search_button_code("stock_update_search","商品情報更新",data,"update_search_code")
     if "update_search_code" in st.session_state:
         with st.form("stock_update", clear_on_submit=True,enter_to_submit=False):#更新用フォーム
             st.subheader("現在の情報")
@@ -289,7 +304,7 @@ with update_tab:
 
 #商品削除（検索機能・削除フォーム・削除チェックあり）
 with delete_tab:
-    search_button_code("stock_delete_search","商品削除","delete_search_code")
+    search_button_code("stock_delete_search","商品削除",data,"delete_search_code")
     if "delete_search_code" in st.session_state:
         with st.form("stock_delete", clear_on_submit=True,enter_to_submit=False):#削除用フォーム
             st.subheader("削除する情報")
