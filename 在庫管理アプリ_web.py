@@ -120,7 +120,7 @@ def search_button_code(form_name,header_name,target_name,session_key):
     if submitted:#更新用、削除用それぞれに判定される
         if not code.isdigit() or len(code)!= 8:
                 st.error("資材コードは8桁の数字で入力してください") 
-        if  header_name=="入出庫履歴":
+        elif  header_name=="入出庫履歴":
             if not code in target_name["資材コード"].values:
                 st.error("この資材コードの入出庫履歴はありません")
             else:
@@ -190,7 +190,9 @@ with history_tub:
     if "history_search_code" in st.session_state:
         st.subheader("入出庫履歴")
         condition=history_data["資材コード"]==st.session_state["history_search_code"]
-        st.dataframe(history_data.loc[condition],hide_index=True)
+        display_data = history_data.loc[condition].copy()
+        display_data["日時"] = pd.to_datetime(display_data["日時"]).dt.date
+        st.dataframe(display_data, hide_index=True)
 
 #在庫一覧
 with show_tub:
