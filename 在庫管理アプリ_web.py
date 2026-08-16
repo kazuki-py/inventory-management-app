@@ -5,8 +5,32 @@ import pandas as pd
 #スプレッドシートから読み込んだ表データをPythonで扱いやすくする
 from streamlit_gsheets import GSheetsConnection
 #StreamlitとGoogleスプレッドシートを接続するための機能
+from datetime import datetime
+#入出庫した瞬間の日時を取得
 SHEET_URL = st.secrets["connections"]["gsheets"]["spreadsheet"]#URLを隠す[]の所から持ってくる
 #ここから関数
+#履歴保存関数
+def history_save(condition, amount, item_name, stock_typ, current_stock):
+    global history_data
+    code_number = data.loc[condition, "資材コード"].iloc[0]
+    now = datetime.now().strftime("%Y/%m/%d %H:%M:%S")#その瞬間の日時がnowに入る　表示方法2026/08/16 16:52:31
+    new_history_data = pd.DataFrame([{
+        "日時":now,
+        "資材コード": code_number,
+        "品名": item_name,
+        "区分": stock_typ,
+        "数量": amount,
+        "入出庫後在庫数":current_stock,
+        }])
+
+    history_data = pd.concat([history_data, new_history_data], ignore_index=True)
+
+    conn.update(
+    spreadsheet=SHEET_URL,
+    worksheet="入出庫履歴",
+    data=history_data
+)
+    
 #データ保存
 def save():#更新後のdataをスプレッドシートへ書き戻す
            # data=data：変更後のdata（表）をスプレッドシートに渡して更新
@@ -37,6 +61,7 @@ def stock_fluc_save(stock_pattern,stock_typ):#入出庫数記録用関数
     item_name=data.loc[condition,"品名"].iloc[0]
     current_stock=int(data.loc[condition,"在庫数"].iloc[0])#入出庫後数量
     save()
+    history_save(condition, amount, item_name, stock_typ, current_stock)
     st.success(f"{item_name}を{amount}個{stock_typ}しました")
     st.write(f"現在の在庫数：{current_stock}個")
 
@@ -55,6 +80,7 @@ def stock_in_out_check(stock_typ):#入出庫チェック用関数（記録用関
                     st.error("出庫数が在庫数より多いです") 
                 else:
                     stock_fluc_save("資材コード","出庫")
+                    
                 
     elif item:
         condition=data["品名"]== item
@@ -104,20 +130,19 @@ def search_button_code(form_name,header_name,session_key):
 conn=st.connection("gsheets", type=GSheetsConnection)
 #「gsheetsという設定を使って、Googleスプレッドシートとの接続を作ってね」
 
-data=conn.read(spreadsheet=SHEET_URL,ttl=0)
+data=conn.read(spreadsheet=SHEET_URL,ttl=0)#在庫データ
 #data:スプレッドシートから読み込んだデータを入れておく変数,conn.read():スプレッドシートを読み込む
 #ttl=0は、ざっくり言えば読み込み結果を長くキャッシュせず、最新のシートを読み直すための設定
 data = data.dropna(subset=["資材コード"])
 # 資材コードが空欄の行を除外
-data["資材コード"] = (
-    data["資材コード"]
-    .astype(int)
-    .astype(str)
-    .str.zfill(8)
-    )#入力値のcode等は文字列だがスプレットシートに入ってるのは数字のため、整数化→文字列
+data["資材コード"] = (data["資材コード"].astype(int).astype(str).str.zfill(8))
+    #入力値のcode等は文字列だがスプレットシートに入ってるのは数字のため、整数化→文字列
     #→この列の各文字列に対して文字列処理をする(str)→プログラム上で使える8桁にするを行い、比較等可能にする
 data["型式・寸法"] = data["型式・寸法"].astype("object")#文字列など色々な値を入れられる型
 data["発注済み"] = data["発注済み"].fillna(0).astype(bool)#TrueかFalseで読み込む
+
+history_data = conn.read(spreadsheet=SHEET_URL, worksheet="入出庫履歴",ttl=0)
+#履歴データ
 
 #メインタイトル
 st.title("在庫管理アプリ")
@@ -209,7 +234,7 @@ if submitted:
     "使用会社": company,
     "形区分": section,
     "発注済み": False
-}])#入力した6項目を、スプレッドシートの1行分の表にする
+}])#入力した8項目を、スプレッドシートの1行分の表にする
     # 発注済みはGoogleスプレッドシートへの書き戻し時に
     # チェックボックスではなくTRUE/FALSE表示になるため現状維持
 
@@ -302,7 +327,7 @@ if already_orderd.any():
     #<span> ～ </span> <h3> ～ </h3>
     #<h3> ～ </h3> → 全体の文字サイズ
     #<span>★</span> → ★だけ追加で色を変更
-    #&nbsp;&nbsp;は空白１個
+    #&nbsp;は空白１個
     st.dataframe(data.loc[already_orderd,["資材コード", "品名", "在庫数","納入予定日"]],hide_index=True)
 else:
     st.caption("✓ 発注している部品はありません")
