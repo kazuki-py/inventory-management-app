@@ -171,7 +171,6 @@ def order_change(cancel_change_condition, order_date, delivery_date):
         st.error("いずれかを入力してください")
     return changed
 
-
 #ここから実行コード
 #保存関係
 conn=st.connection("gsheets", type=GSheetsConnection)
@@ -186,6 +185,7 @@ data["資材コード"] = (data["資材コード"].astype(int).astype(str).str.z
     #入力値のcode等は文字列だがスプレットシートに入ってるのは数字のため、整数化→文字列
     #→この列の各文字列に対して文字列処理をする(str)→プログラム上で使える8桁にするを行い、比較等可能にする
 data["型式・寸法"] = data["型式・寸法"].astype("object")#文字列など色々な値を入れられる型
+data["納入予定日"] = data["納入予定日"].astype("object")
 
 #履歴データ
 history_data = conn.read(spreadsheet=SHEET_URL, worksheet="入出庫履歴",ttl=0)
@@ -194,9 +194,10 @@ history_data["資材コード"] = (history_data["資材コード"].astype(int).a
 
 #メインタイトル
 st.title("在庫管理アプリ")
-order_required = ((data["在庫数"] < data["最低在庫数"]) &(data["発注日"].isna()))
 
-#タブ管理
+
+#タブ全体管理
+order_required = ((data["在庫数"] < data["最低在庫数"]) &(data["発注日"].isna()))
 if order_required.any():
     order_tab_name = "⚠️ 発注状況"
 else:
@@ -204,6 +205,20 @@ else:
 tab1,tab2,tab3,tab4,tab5= st.tabs(
     ["入庫", "出庫", "在庫確認","商品管理",order_tab_name])
 
+#在庫確認タブ
+with tab3:
+    search_tub,history_tub,show_tub=st.tabs(["在庫検索","入出庫履歴","在庫一覧"])
+
+#登録管理タブ
+with tab4:
+    register_tab,update_tab, delete_tab = st.tabs(
+        ["商品登録","商品情報更新", "商品削除"])
+
+#発注状況タブ
+with tab5:
+   order_tub , already_ordered_tub= st.tabs(
+        ["発注","発注情報更新"])
+   
 #入庫用フォーム（タブ）
 with tab1:
     code,item,amount,submitted_stock=stock_in_out_form("stock_in_form","入庫","入庫数")
@@ -220,10 +235,6 @@ with tab2:
 if submitted_stock:
     stock_in_out_check("出庫")
 
-#在庫確認タブ
-with tab3:
-    search_tub,history_tub,show_tub=st.tabs(["在庫検索","入出庫履歴","在庫一覧"])
-
 #在庫検索
 with search_tub:
     search_button_code("stock_search","在庫検索",data,"search_code")
@@ -231,6 +242,7 @@ with search_tub:
         st.subheader("商品情報")
         condition=data["資材コード"]==st.session_state["search_code"]
         st.dataframe(data.loc[condition].drop(columns=["発注日","納入予定日"]),hide_index=True)
+
 #入出庫履歴
 with history_tub:
     search_button_code("stock_history_search","入出庫履歴",history_data,"history_search_code")
@@ -252,12 +264,7 @@ with show_tub:
         st.header("在庫一覧")
         st.write("在庫を確認できます")
         st.link_button("在庫一覧を開く",SHEET_URL)
-
-#登録管理タブ
-with tab4:
-    register_tab,update_tab, delete_tab = st.tabs(
-        ["商品登録","商品情報更新", "商品削除"])
-        
+ 
 #登録用フォーム
 with register_tab:
     with st.form("register_form", clear_on_submit=True):
@@ -278,8 +285,6 @@ with register_tab:
         submitted=st.form_submit_button("登録")
         # form：複数の入力項目と送信ボタンを1セットにする,登録用紙全体
         # submitted：登録ボタンが押されたかを受け取る,その用紙の「登録する」ボタン
-
-            
         
 #登録用チェック機能
 if submitted:
@@ -373,18 +378,18 @@ with delete_tab:
             else:
                 st.warning("確認欄にチェックを入れてください")
 
-#不足在庫一覧
+#発注
 condition =((data["在庫数"] < data["最低在庫数"]) &
     (data["発注日"].isna()))#isna() は、その値が NaN（欠損値・空欄）かどうかを見る
-with tab5:
-    already_orderd=data["発注日"].notna()#notna() は、その値が 入ってるかどうかを見る
+with order_tub:
+    already_ordered=data["発注日"].notna()#notna() は、その値が 入ってるかどうかを見る
     if condition.any():#condition(最低在庫数以下の在庫数)の中にTrueが1つでもあるなら
         search_button_code("order_search","発注",data,"order_search_code")
         if "order_search_code" in st.session_state:
-            with st.form("orderd_form",clear_on_submit=True,enter_to_submit=False):
+            with st.form("order_form",clear_on_submit=True,enter_to_submit=False):
                 st.subheader("現在の情報")
                 order_condition=data["資材コード"]==st.session_state["order_search_code"]
-                st.dataframe(data.loc[order_condition,["資材コード", "品名", "型式・寸法","在庫数"]],hide_index=True)
+                st.dataframe(data.loc[order_condition,["資材コード", "品名", "型式・寸法","在庫数","最低在庫数"]],hide_index=True)
                 order_date = st.date_input("発注日", value=None)
                 delivery_date = st.date_input("納入予定日 ※未定の場合は空欄のままにしてください", value=None)
                 submitted_order = st.form_submit_button("発注")
@@ -398,38 +403,31 @@ with tab5:
                     if delivery_date:
                         data.loc[order_condition, "納入予定日"] = str(delivery_date)
                     save()
-                    st.rerun()
+                    st.success("下記の通り、発注されました")
+                    st.dataframe(data.loc[order_condition,["資材コード","品名","型式・寸法","発注日","納入予定日"]],hide_index=True)
                     
         st.subheader("⚠️ 発注確認")
         st.markdown(f"<span style='color:red;'>不足している部品が{condition.sum()}個あります、発注してください！</span>",
             unsafe_allow_html=True
         )#unsafe_allow_html=True → HTMLによる色・サイズなどの装飾を許可
         #conditionの中にTrueがいくつあるか（Trueは1　Falseは0　1の合計）
-        #lenはTrueとFalceどっちの数も拾うためpandas（表）には使えない
+        #lenはTrueとFalseどっちの数も拾うためpandas（表）には使えない
         st.dataframe(data.loc[condition,["資材コード", "品名", "型式・寸法", "在庫数", "最低在庫数"]],hide_index=True)
 
     else:
         st.caption("✓ 不足している部品（未発注）はありません")
 
-    #発注済み商品
-    if already_orderd.any():
-        st.markdown(
-        "<h3><span style='color:green;'>★</span>&nbsp;&nbsp;発注済み商品</h3>",
-        unsafe_allow_html=True)
-        #span は、文章の一部分だけ色や太さなどを変えたいときに、その範囲を囲むもの
-        #<span> ～ </span> <h3> ～ </h3>
-        #<h3> ～ </h3> → 全体の文字サイズ
-        #<span>★</span> → ★だけ追加で色を変更
-        #&nbsp;は空白１個
-        st.dataframe(data.loc[already_orderd,["資材コード", "品名", "在庫数","発注日","納入予定日"]],hide_index=True)
+#発注情報更新
+with already_ordered_tub:    
+    if already_ordered.any():
         #発注情報更新フォーム
-        search_button_code("order_cancel_change_search","発注情報変更",data,"cancel_change_search_code")
+        search_button_code("order_cancel_change_search","発注情報更新",data,"cancel_change_search_code")
         if "cancel_change_search_code" in st.session_state:
             cancel_change_condition = ((data["資材コード"] == st.session_state["cancel_change_search_code"]) &
             (data["発注日"].notna()))#資材コードと一致かつ発注日があるもの
             if cancel_change_condition.any():
                 with st.form("order_cancel_change_form",clear_on_submit=True,enter_to_submit=False):
-                    st.subheader("変更する商品情報")
+                    st.subheader("現在の情報")
                     st.dataframe(data.loc[cancel_change_condition].drop(columns=["使用会社","形区分"]),hide_index=True)
                     order_date = st.date_input("発注日", value=None)
                     delivery_date = st.date_input("納入予定日" ,value=None)
@@ -445,14 +443,22 @@ with tab5:
                             st.success("下記の通り、発注日・納入予定日が取り消されました")
                             
                         elif submitted_order_change:
-                            if order_date and delivery_date:#発注日・納入予定日どちらも変更
-                                changed=order_change(cancel_change_condition, order_date, delivery_date)
+                            changed=order_change(cancel_change_condition, order_date, delivery_date)
                         if changed:
                             save()
                             st.dataframe(data.loc[cancel_change_condition].drop(columns=["使用会社","形区分"]),hide_index=True)
             else:
                 st.error("この商品は発注されていません")
-        else:
-            st.caption("✓ 発注している部品はありません")
-st.write(data.columns)
-data = data.dropna(subset=["資材コード"])
+        st.markdown(
+        "<h3><span style='color:green;'>★</span>&nbsp;&nbsp;発注済み商品</h3>",
+        unsafe_allow_html=True)
+        #span は、文章の一部分だけ色や太さなどを変えたいときに、その範囲を囲むもの
+        #<span> ～ </span> <h3> ～ </h3>
+        #<h3> ～ </h3> → 全体の文字サイズ
+        #<span>★</span> → ★だけ追加で色を変更
+        #&nbsp;は空白１個
+        st.dataframe(data.loc[already_ordered,["資材コード", "品名", "在庫数","発注日","納入予定日"]],hide_index=True)
+        
+    else:
+        st.caption("✓ 発注している部品はありません")
+
