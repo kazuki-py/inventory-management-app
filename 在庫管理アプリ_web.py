@@ -108,7 +108,7 @@ def stock_in_out_check(stock_typ):#入出庫チェック用関数（記録用関
 def stock_update(column_name,update_name):#商品情報更新用関数
     data.loc[data["資材コード"]== st.session_state["update_search_code"],column_name]=update_name
 
-#検索（更新と削除にも使用）
+#検索（更新と削除と不足在庫にも使用）
 def search_button_code(form_name,header_name,target_name,session_key):
     #検索用フォーム→チェック→コード維持保存用関数
     with st.form(form_name, clear_on_submit=True,enter_to_submit=False):
@@ -153,8 +153,14 @@ history_data["資材コード"] = (history_data["資材コード"].astype(int).a
 
 #メインタイトル
 st.title("在庫管理アプリ")
-tab1,tab2,tab3,tab4= st.tabs(
-    ["入庫", "出庫", "在庫確認","商品管理"])
+order_required = ((data["在庫数"] < data["最低在庫数"]) &(data["発注日"].isna()))
+
+if order_required.any():
+    order_tab_name = "⚠️ 発注状況"
+else:
+    order_tab_name = "発注状況"
+tab1,tab2,tab3,tab4,tab5= st.tabs(
+    ["入庫", "出庫", "在庫確認","商品管理",order_tab_name])
 
 #入庫用フォーム（タブ）
 with tab1:
@@ -325,29 +331,53 @@ with delete_tab:
             else:
                 st.warning("確認欄にチェックを入れてください")
 
-#不足在庫一覧（タブ無し）
+#不足在庫一覧
 condition =((data["在庫数"] < data["最低在庫数"]) &
-    (data["発注日"].isna()))
-already_orderd=data["発注日"].notna()
-if condition.any():#condition(最低在庫数以下の在庫数)の中にTrueが1つでもあるなら
-    st.subheader("⚠️ 発注確認")
-    st.markdown(f"<span style='color:red;'>不足している部品が{condition.sum()}個あります、発注してください！</span>",
-        unsafe_allow_html=True
-    )#unsafe_allow_html=True → HTMLによる色・サイズなどの装飾を許可
-    #conditionの中にTrueがいくつあるか（Trueは1　Falseは0　1の合計）
-    #lenはTrueとFalceどっちの数も拾うためpandas（表）には使えない
-    st.dataframe(data.loc[condition,["資材コード", "品名", "在庫数", "最低在庫数"]],hide_index=True)
-else:
-    st.caption("✓ 不足している部品（未発注）はありません")
-if already_orderd.any():
-    st.markdown(
-    "<h3><span style='color:green;'>★</span>&nbsp;&nbsp;発注済み商品</h3>",
-    unsafe_allow_html=True)
-    #span は、文章の一部分だけ色や太さなどを変えたいときに、その範囲を囲むもの
-    #<span> ～ </span> <h3> ～ </h3>
-    #<h3> ～ </h3> → 全体の文字サイズ
-    #<span>★</span> → ★だけ追加で色を変更
-    #&nbsp;は空白１個
-    st.dataframe(data.loc[already_orderd,["資材コード", "品名", "在庫数","発注日","納入予定日"]],hide_index=True)
-else:
-    st.caption("✓ 発注している部品はありません")
+    (data["発注日"].isna()))#isna() は、その値が NaN（欠損値・空欄）かどうかを見る
+with tab5:
+    already_orderd=data["発注日"].notna()#notna() は、その値が 入ってるかどうかを見る
+    if condition.any():#condition(最低在庫数以下の在庫数)の中にTrueが1つでもあるなら
+        search_button_code("order_search","発注",data,"order_search_code")
+        if "order_search_code" in st.session_state:
+            with st.form("orderd_form",clear_on_submit=True,enter_to_submit=False):
+                st.subheader("現在の情報")
+                order_condition=data["資材コード"]==st.session_state["order_search_code"]
+                st.dataframe(data.loc[order_condition,["資材コード", "品名", "型式・寸法","在庫数"]],hide_index=True)
+                order_date = st.date_input("発注日", value=None)
+                delivery_date = st.date_input("納入予定日 ※未定の場合は空欄のままにしてください", value=None)
+                submitted_order = st.form_submit_button("発注")
+            if submitted_order:
+                if not order_date:
+                    st.error("発注日を入力してください")
+                elif delivery_date and order_date>delivery_date:
+                    st.error("発注日が納入予定日を過ぎています")
+                else:
+                    data.loc[order_condition, "発注日"] = str(order_date) #左のままだと文字列ではなくdate 型。
+                    if delivery_date:
+                        data.loc[order_condition, "納入予定日"] = str(delivery_date)
+                    save()
+                    st.rerun()
+                    
+        st.subheader("⚠️ 発注確認")
+        st.markdown(f"<span style='color:red;'>不足している部品が{condition.sum()}個あります、発注してください！</span>",
+            unsafe_allow_html=True
+        )#unsafe_allow_html=True → HTMLによる色・サイズなどの装飾を許可
+        #conditionの中にTrueがいくつあるか（Trueは1　Falseは0　1の合計）
+        #lenはTrueとFalceどっちの数も拾うためpandas（表）には使えない
+        st.dataframe(data.loc[condition,["資材コード", "品名", "在庫数", "最低在庫数"]],hide_index=True)
+    
+    else:
+        st.caption("✓ 不足している部品（未発注）はありません")
+    
+    if already_orderd.any():
+        st.markdown(
+        "<h3><span style='color:green;'>★</span>&nbsp;&nbsp;発注済み商品</h3>",
+        unsafe_allow_html=True)
+        #span は、文章の一部分だけ色や太さなどを変えたいときに、その範囲を囲むもの
+        #<span> ～ </span> <h3> ～ </h3>
+        #<h3> ～ </h3> → 全体の文字サイズ
+        #<span>★</span> → ★だけ追加で色を変更
+        #&nbsp;は空白１個
+        st.dataframe(data.loc[already_orderd,["資材コード", "品名", "在庫数","発注日","納入予定日"]],hide_index=True)
+    else:
+        st.caption("✓ 発注している部品はありません")
