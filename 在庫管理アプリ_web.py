@@ -145,7 +145,6 @@ data["資材コード"] = (data["資材コード"].astype(int).astype(str).str.z
     #入力値のcode等は文字列だがスプレットシートに入ってるのは数字のため、整数化→文字列
     #→この列の各文字列に対して文字列処理をする(str)→プログラム上で使える8桁にするを行い、比較等可能にする
 data["型式・寸法"] = data["型式・寸法"].astype("object")#文字列など色々な値を入れられる型
-data["発注済み"] = data["発注済み"].fillna(0).astype(bool)#TrueかFalseで読み込む
 
 #履歴データ
 history_data = conn.read(spreadsheet=SHEET_URL, worksheet="入出庫履歴",ttl=0)
@@ -183,7 +182,7 @@ with search_tub:
     if "search_code" in st.session_state:
         st.subheader("商品情報")
         condition=data["資材コード"]==st.session_state["search_code"]
-        st.dataframe(data.loc[condition].drop(columns=["発注済み","納入予定日"]),hide_index=True)
+        st.dataframe(data.loc[condition].drop(columns=["発注日","納入予定日"]),hide_index=True)
 #入出庫履歴
 with history_tub:
     search_button_code("stock_history_search","入出庫履歴",history_data,"history_search_code")
@@ -193,6 +192,10 @@ with history_tub:
         display_data = history_data.loc[condition].copy()
         display_data["日時"] = pd.to_datetime(display_data["日時"]).dt.date
         st.dataframe(display_data, hide_index=True)
+        #history_data.loc[condition] で対象の履歴だけ取り出す
+        #→ copy() で表示用にコピー
+        #→ コピー側の「日時」だけ日付に変更
+        #→ st.dataframe() で表示
 
 #在庫一覧
 with show_tub:
@@ -250,7 +253,7 @@ if submitted:
     "最低在庫数": min_stock,
     "使用会社": company,
     "形区分": section,
-    "発注済み": False
+    "発注日": ""
 }])#入力した8項目を、スプレッドシートの1行分の表にする
     # 発注済みはGoogleスプレッドシートへの書き戻し時に
     # チェックボックスではなくTRUE/FALSE表示になるため現状維持
@@ -262,7 +265,7 @@ if submitted:
         save()
         condition=data["資材コード"]==code
         st.write("以下のデータを登録しました")
-        st.dataframe(data.loc[condition].drop(columns=["発注済み","納入予定日"]),hide_index=True)
+        st.dataframe(data.loc[condition].drop(columns=["発注日","納入予定日"]),hide_index=True)
 
 #商品情報更新（検索機能・更新フォーム・更新チェックあり）
 with update_tab:
@@ -324,8 +327,8 @@ with delete_tab:
 
 #不足在庫一覧（タブ無し）
 condition =((data["在庫数"] < data["最低在庫数"]) &
-    (data["発注済み"] != True))
-already_orderd=data["発注済み"]== True
+    (data["発注日"].isna()))
+already_orderd=data["発注日"].notna()
 if condition.any():#condition(最低在庫数以下の在庫数)の中にTrueが1つでもあるなら
     st.subheader("⚠️ 発注確認")
     st.markdown(f"<span style='color:red;'>不足している部品が{condition.sum()}個あります、発注してください！</span>",
@@ -345,6 +348,6 @@ if already_orderd.any():
     #<h3> ～ </h3> → 全体の文字サイズ
     #<span>★</span> → ★だけ追加で色を変更
     #&nbsp;は空白１個
-    st.dataframe(data.loc[already_orderd,["資材コード", "品名", "在庫数","納入予定日"]],hide_index=True)
+    st.dataframe(data.loc[already_orderd,["資材コード", "品名", "在庫数","発注日","納入予定日"]],hide_index=True)
 else:
     st.caption("✓ 発注している部品はありません")
