@@ -131,6 +131,47 @@ def search_button_code(form_name,header_name,target_name,session_key):
             else:
                 st.session_state[session_key] = code
 
+#発注内容変更関数
+def order_change(cancel_change_condition, order_date, delivery_date):
+    if order_date and delivery_date:#発注日・納入予定日どちらも変更
+        if order_date>delivery_date:
+            st.error("発注日が納入予定日を過ぎています")
+        else:
+            data.loc[cancel_change_condition, "発注日"] = str(order_date)
+            data.loc[cancel_change_condition, "納入予定日"] = str(delivery_date)
+            changed = True
+            st.success("下記の通り、発注日・納入予定日が変更されました")
+    elif order_date:#発注日だけ変更
+        code_delivery_date = data.loc[cancel_change_condition, "納入予定日"].iloc[0]
+        if pd.notna(code_delivery_date):#code_delivery_dateにデータがあるなら
+            code_delivery_date = pd.to_datetime(code_delivery_date).date()#比較のためdate型にそろえる
+            if order_date>code_delivery_date:
+                st.error("発注日が納入予定日を過ぎています")
+            else:
+                data.loc[cancel_change_condition, "発注日"] = str(order_date)
+                changed = True
+                st.success("下記の通り、発注日が変更されました")
+        else:
+            data.loc[cancel_change_condition, "発注日"] = str(order_date)
+            changed = True
+            st.success("下記の通り、発注日が変更されました")
+    elif delivery_date:#納入予定日だけ変更
+        code_order_date = data.loc[cancel_change_condition, "発注日"].iloc[0]
+        if pd.notna(code_order_date):
+            code_order_date = pd.to_datetime(code_order_date).date()
+            if delivery_date<code_order_date:
+                st.error("納入予定日は発注日より後日にしてください")
+            else:
+                data.loc[cancel_change_condition, "納入予定日"] = str(delivery_date)
+                changed = True
+                st.success("下記の通り、納入予定日が変更されました")
+        else:#基本的は発注日はあるはずだがファイルが壊れた時などの保険
+            st.error("発注日が登録されていません")    
+    else:
+        st.error("いずれかを入力してください")
+    return changed
+
+
 #ここから実行コード
 #保存関係
 conn=st.connection("gsheets", type=GSheetsConnection)
@@ -155,6 +196,7 @@ history_data["資材コード"] = (history_data["資材コード"].astype(int).a
 st.title("在庫管理アプリ")
 order_required = ((data["在庫数"] < data["最低在庫数"]) &(data["発注日"].isna()))
 
+#タブ管理
 if order_required.any():
     order_tab_name = "⚠️ 発注状況"
 else:
@@ -364,11 +406,12 @@ with tab5:
         )#unsafe_allow_html=True → HTMLによる色・サイズなどの装飾を許可
         #conditionの中にTrueがいくつあるか（Trueは1　Falseは0　1の合計）
         #lenはTrueとFalceどっちの数も拾うためpandas（表）には使えない
-        st.dataframe(data.loc[condition,["資材コード", "品名", "在庫数", "最低在庫数"]],hide_index=True)
-    
+        st.dataframe(data.loc[condition,["資材コード", "品名", "型式・寸法", "在庫数", "最低在庫数"]],hide_index=True)
+
     else:
         st.caption("✓ 不足している部品（未発注）はありません")
-    
+
+    #発注済み商品
     if already_orderd.any():
         st.markdown(
         "<h3><span style='color:green;'>★</span>&nbsp;&nbsp;発注済み商品</h3>",
@@ -379,5 +422,37 @@ with tab5:
         #<span>★</span> → ★だけ追加で色を変更
         #&nbsp;は空白１個
         st.dataframe(data.loc[already_orderd,["資材コード", "品名", "在庫数","発注日","納入予定日"]],hide_index=True)
-    else:
-        st.caption("✓ 発注している部品はありません")
+        #発注情報更新フォーム
+        search_button_code("order_cancel_change_search","発注情報変更",data,"cancel_change_search_code")
+        if "cancel_change_search_code" in st.session_state:
+            cancel_change_condition = ((data["資材コード"] == st.session_state["cancel_change_search_code"]) &
+            (data["発注日"].notna()))#資材コードと一致かつ発注日があるもの
+            if cancel_change_condition.any():
+                with st.form("order_cancel_change_form",clear_on_submit=True,enter_to_submit=False):
+                    st.subheader("変更する商品情報")
+                    st.dataframe(data.loc[cancel_change_condition].drop(columns=["使用会社","形区分"]),hide_index=True)
+                    order_date = st.date_input("発注日", value=None)
+                    delivery_date = st.date_input("納入予定日" ,value=None)
+                    st.write("※発注取消の場合は空欄のままボタンを押してください")
+                    submitted_order_cancel = st.form_submit_button("発注取消")
+                    submitted_order_change = st.form_submit_button("発注内容変更")
+                    if submitted_order_cancel or submitted_order_change:
+                        changed = False
+                        if submitted_order_cancel:
+                            data.loc[cancel_change_condition, "発注日"] = None
+                            data.loc[cancel_change_condition, "納入予定日"] = None
+                            changed = True
+                            st.success("下記の通り、発注日・納入予定日が取り消されました")
+                            
+                        elif submitted_order_change:
+                            if order_date and delivery_date:#発注日・納入予定日どちらも変更
+                                changed=order_change(cancel_change_condition, order_date, delivery_date)
+                        if changed:
+                            save()
+                            st.dataframe(data.loc[cancel_change_condition].drop(columns=["使用会社","形区分"]),hide_index=True)
+            else:
+                st.error("この商品は発注されていません")
+        else:
+            st.caption("✓ 発注している部品はありません")
+st.write(data.columns)
+data = data.dropna(subset=["資材コード"])
