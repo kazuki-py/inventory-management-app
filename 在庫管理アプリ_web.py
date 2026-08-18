@@ -9,6 +9,15 @@ from datetime import datetime
 #入出庫した瞬間の日時を取得
 SHEET_URL = st.secrets["connections"]["gsheets"]["spreadsheet"]#URLを隠す[]の所から持ってくる
 #ここから関数
+
+    
+#データ保存
+def save():#更新後のdataをスプレッドシートへ書き戻す
+           # data=data：変更後のdata（表）をスプレッドシートに渡して更新
+    conn.update(
+        spreadsheet=SHEET_URL,
+        data=data)
+    
 #履歴保存
 def history_save(condition, amount, item_name, stock_typ, current_stock):
     global history_data
@@ -31,13 +40,6 @@ def history_save(condition, amount, item_name, stock_typ, current_stock):
     worksheet="入出庫履歴",
     data=history_data
 )
-    
-#データ保存
-def save():#更新後のdataをスプレッドシートへ書き戻す
-           # data=data：変更後のdata（表）をスプレッドシートに渡して更新
-    conn.update(
-        spreadsheet=SHEET_URL,
-        data=data)
     
 #入出庫
 def stock_in_out_form(form_name,header_name,amount_name):#入出庫フォーム用関数
