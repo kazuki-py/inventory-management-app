@@ -21,6 +21,7 @@ def history_save(condition, amount, item_name, stock_typ, current_stock):
         "区分": stock_typ,
         "数量": amount,
         "入出庫後在庫数":current_stock,
+        "取消状況":"無"
         }])
 
     history_data = pd.concat([history_data, new_history_data], ignore_index=True)
@@ -104,11 +105,24 @@ def stock_in_out_check(stock_typ):#入出庫チェック用関数（記録用関
     else:
         st.error("資材コードもしくは品名を入力してください")  
 
+#入出庫履歴用関数
+def history_search(search_code_name):
+    if search_code_name in st.session_state:
+        st.subheader("入出庫履歴")
+        condition=history_data["資材コード"]==st.session_state[search_code_name]
+        display_data = history_data.loc[condition].copy()
+        display_data["日時"] = pd.to_datetime(display_data["日時"]).dt.date
+        st.dataframe(display_data, hide_index=True)
+        #history_data.loc[condition] で対象の履歴だけ取り出す
+        #→ copy() で表示用にコピー
+        #→ コピー側の「日時」だけ日付に変更
+        #→ st.dataframe() で表示
+
 #商品情報更新         
 def stock_update(column_name,update_name):#商品情報更新用関数
     data.loc[data["資材コード"]== st.session_state["update_search_code"],column_name]=update_name
 
-#検索（更新と削除と不足在庫にも使用）
+#検索（在庫検索・更新・削除・不足在庫・入出庫取消に使用）
 def search_button_code(form_name,header_name,target_name,session_key):
     #検索用フォーム→チェック→コード維持保存用関数
     with st.form(form_name, clear_on_submit=True,enter_to_submit=False):
@@ -120,7 +134,7 @@ def search_button_code(form_name,header_name,target_name,session_key):
     if submitted:#更新用、削除用それぞれに判定される
         if not code.isdigit() or len(code)!= 8:
                 st.error("資材コードは8桁の数字で入力してください") 
-        elif  header_name=="入出庫履歴":
+        elif  header_name=="入出庫履歴" or header_name=="入出庫取消":
             if not code in target_name["資材コード"].values:
                 st.error("この資材コードの入出庫履歴はありません")
             else:
@@ -133,6 +147,7 @@ def search_button_code(form_name,header_name,target_name,session_key):
 
 #発注内容変更関数
 def order_change(cancel_change_condition, order_date, delivery_date):
+    changed = False
     if order_date and delivery_date:#発注日・納入予定日どちらも変更
         if order_date>delivery_date:
             st.error("発注日が納入予定日を過ぎています")
@@ -171,6 +186,30 @@ def order_change(cancel_change_condition, order_date, delivery_date):
         st.error("いずれかを入力してください")
     return changed
 
+#入出庫取消用関数
+def cancel_type_check(cancel_type):
+    with st.form("stock_cancel", clear_on_submit=True,enter_to_submit=False):
+        st.markdown(f"<span style='color:red;'>上記の情報を取り消します!<br>ご確認の上、取消ボタンを押してください</span>",
+                    unsafe_allow_html=True)
+        submitted_cancel = st.form_submit_button("取消")
+    if submitted_cancel:
+        canceled = False
+        if cancel_type=="入庫":
+            if data.loc[cancel_condition, "在庫数"].iloc[0]<cancel_amount:
+                st.error("在庫数が不足のため取消できません")
+            else:
+                data.loc[cancel_condition, "在庫数"] -= cancel_amount
+                canceled = True
+        elif cancel_type == "出庫":
+            data.loc[cancel_condition, "在庫数"] += cancel_amount
+            canceled = True
+        if canceled:
+            cancel_item=data.loc[cancel_condition, "品名"].iloc[0]
+            cancel_current_stock=data.loc[cancel_condition, "在庫数"].iloc[0]
+            history_data.loc[selected_index, "取消状況"] = "有"
+            save()
+            history_save(cancel_condition, cancel_amount, cancel_item , cancel_type+"取消", cancel_current_stock )
+            st.success("取消が実行されました")
 #ここから実行コード
 #保存関係
 conn=st.connection("gsheets", type=GSheetsConnection)
@@ -202,8 +241,8 @@ if order_required.any():
     order_tab_name = "⚠️ 発注状況"
 else:
     order_tab_name = "発注状況"
-tab1,tab2,tab3,tab4,tab5= st.tabs(
-    ["入庫", "出庫", "在庫確認","商品管理",order_tab_name])
+tab1,tab2,tab3,tab4,tab5,tab6= st.tabs(
+    ["入庫", "出庫", "在庫確認","商品管理",order_tab_name,"入出庫取消"])
 
 #在庫確認タブ
 with tab3:
@@ -246,17 +285,8 @@ with search_tub:
 #入出庫履歴
 with history_tub:
     search_button_code("stock_history_search","入出庫履歴",history_data,"history_search_code")
-    if "history_search_code" in st.session_state:
-        st.subheader("入出庫履歴")
-        condition=history_data["資材コード"]==st.session_state["history_search_code"]
-        display_data = history_data.loc[condition].copy()
-        display_data["日時"] = pd.to_datetime(display_data["日時"]).dt.date
-        st.dataframe(display_data, hide_index=True)
-        #history_data.loc[condition] で対象の履歴だけ取り出す
-        #→ copy() で表示用にコピー
-        #→ コピー側の「日時」だけ日付に変更
-        #→ st.dataframe() で表示
-
+    history_search("history_search_code")
+       
 #在庫一覧
 with show_tub:
     with st.container(border=True):#下部をひとつにまとめる、border=True（枠を作る）
@@ -324,6 +354,7 @@ if submitted:
 with update_tab:
     search_button_code("stock_update_search","商品情報更新",data,"update_search_code")
     if "update_search_code" in st.session_state:
+        cancel_condition = history_data["資材コード"] == st.session_state["cancel_search_code"]
         with st.form("stock_update", clear_on_submit=True,enter_to_submit=False):#更新用フォーム
             st.subheader("現在の情報")
             condition=data["資材コード"]==st.session_state["update_search_code"]
@@ -379,9 +410,9 @@ with delete_tab:
                 st.warning("確認欄にチェックを入れてください")
 
 #発注
-condition =((data["在庫数"] < data["最低在庫数"]) &
-    (data["発注日"].isna()))#isna() は、その値が NaN（欠損値・空欄）かどうかを見る
 with order_tub:
+    condition =((data["在庫数"] < data["最低在庫数"]) &
+    (data["発注日"].isna()))#isna() は、その値が NaN（欠損値・空欄）かどうかを見る
     already_ordered=data["発注日"].notna()#notna() は、その値が 入ってるかどうかを見る
     if condition.any():#condition(最低在庫数以下の在庫数)の中にTrueが1つでもあるなら
         search_button_code("order_search","発注",data,"order_search_code")
@@ -417,10 +448,10 @@ with order_tub:
     else:
         st.caption("✓ 不足している部品（未発注）はありません")
 
-#発注情報更新
+#発注情報更新（検索機能・変更/検索フォーム・更新チェック（関数）あり）
 with already_ordered_tub:    
     if already_ordered.any():
-        #発注情報更新フォーム
+        #発注情報更新フォーム(検索あり)
         search_button_code("order_cancel_change_search","発注情報更新",data,"cancel_change_search_code")
         if "cancel_change_search_code" in st.session_state:
             cancel_change_condition = ((data["資材コード"] == st.session_state["cancel_change_search_code"]) &
@@ -461,4 +492,43 @@ with already_ordered_tub:
         
     else:
         st.caption("✓ 発注している部品はありません")
+
+#入出庫取消
+with tab6:
+    search_button_code("stock_cancel_search","入出庫取消",history_data,"cancel_search_code")
+    # ① 資材コードで履歴を絞る
+    if "cancel_search_code" in st.session_state:#履歴から選ぶ
+        condition = (
+    (history_data["資材コード"] == st.session_state["cancel_search_code"]) &
+    (history_data["区分"].isin(["入庫", "出庫"])) &
+    (history_data["取消状況"]=="無"))#history_data["区分"]の中に"入庫", "出庫"が入ってるか
+        cancel_history = history_data.loc[condition]
+        # ② indexを選択肢にする
+        if cancel_history.empty:#.empty = 「この表、空？」
+            st.error("取消可能な入出庫履歴はありません")
+        else:
+            selected_index = st.selectbox(
+                "取り消す履歴を選択してください",
+                cancel_history.index,
+                # ③ ただし画面には履歴内容を表示
+                format_func=lambda i: (
+                    f'{cancel_history.loc[i, "日時"]} '
+                    f'{cancel_history.loc[i, "区分"]} '
+                    f'{int(cancel_history.loc[i, "数量"])}個'
+                )
+            )
+            # ④ 選んだindexから元の履歴を取得
+            cancel_data = history_data.loc[selected_index]
+            #history_dataの中の選んだインデックス値に対応する行を代入
+            cancel_code = cancel_data["資材コード"]
+            cancel_type = cancel_data["区分"]
+            cancel_amount = int(cancel_data["数量"])
+            #それぞれ、cancel_dataの中から各ヘッダーの値を代入
+            cancel_condition = data["資材コード"] == cancel_code
+            #dataの資材コードとhistory_dataの資材コード（cancel_code）一致した行
+            cancel_type_check(cancel_type)
+            
+                                        
+
+                
 
