@@ -226,6 +226,7 @@ data["資材コード"] = (data["資材コード"].astype(int).astype(str).str.z
     #入力値のcode等は文字列だがスプレットシートに入ってるのは数字のため、整数化→文字列
     #→この列の各文字列に対して文字列処理をする(str)→プログラム上で使える8桁にするを行い、比較等可能にする
 data["型式・寸法"] = data["型式・寸法"].astype("object")#文字列など色々な値を入れられる型
+data["発注日"] = data["発注日"].astype("object")#空欄が多いとfloat64になることがあるため変換
 data["納入予定日"] = data["納入予定日"].astype("object")
 
 #履歴データ
@@ -236,7 +237,7 @@ history_data["資材コード"] = (history_data["資材コード"].astype(int).a
 #メインタイトル
 st.title("在庫管理アプリ")
 
-
+st.write(data.dtypes)
 #タブ全体管理
 order_required = ((data["在庫数"] < data["最低在庫数"]) &(data["発注日"].isna()))
 if order_required.any():
