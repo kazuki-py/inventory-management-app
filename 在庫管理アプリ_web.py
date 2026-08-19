@@ -19,7 +19,7 @@ def save():#更新後のdataをスプレッドシートへ書き戻す
         data=data)
     
 #履歴保存
-def history_save(condition, amount, item_name, stock_typ, current_stock):
+def history_save(condition, amount, item_name, stock_typ, current_stock,cancel_situation):
     global history_data
     code_number = data.loc[condition, "資材コード"].iloc[0]
     now = datetime.now().strftime("%Y/%m/%d %H:%M:%S")#その瞬間の日時がnowに入る　表示方法2026/08/16 16:52:31
@@ -30,7 +30,7 @@ def history_save(condition, amount, item_name, stock_typ, current_stock):
         "区分": stock_typ,
         "数量": amount,
         "入出庫後在庫数":current_stock,
-        "取消状況":"無"
+        "取消状況":cancel_situation
         }])
 
     history_data = pd.concat([history_data, new_history_data], ignore_index=True)
@@ -64,7 +64,7 @@ def stock_fluc_save(stock_pattern,stock_typ):#入出庫数記録用関数
     item_name=data.loc[condition,"品名"].iloc[0]
     current_stock=int(data.loc[condition,"在庫数"].iloc[0])#入出庫後数量
     save()
-    history_save(condition, amount, item_name, stock_typ, current_stock)
+    history_save(condition, amount, item_name, stock_typ, current_stock,"無")
     st.success(f"{item_name}を{amount}個{stock_typ}しました")
     st.write(f"現在の在庫数：{current_stock}個")
 
@@ -210,7 +210,7 @@ def cancel_type_check(cancel_type):
             cancel_current_stock=data.loc[cancel_condition, "在庫数"].iloc[0]
             history_data.loc[selected_index, "取消状況"] = "有"
             save()
-            history_save(cancel_condition, cancel_amount, cancel_item , cancel_type+"取消", cancel_current_stock )
+            history_save(cancel_condition, cancel_amount, cancel_item , cancel_type+"取消", cancel_current_stock ,"━")
             st.success("取消が実行されました")
 #ここから実行コード
 #保存関係
@@ -502,7 +502,7 @@ with tab6:
     if "cancel_search_code" in st.session_state:#履歴から選ぶ
         condition = (
     (history_data["資材コード"] == st.session_state["cancel_search_code"]) &
-    (history_data["区分"].isin(["入庫", "出庫"])) &
+    (history_data["区分"].isin(["入庫", "出庫"])) &#ここ今は不要、今後「取消状況」の状態次第で使えるかも
     (history_data["取消状況"]=="無"))#history_data["区分"]の中に"入庫", "出庫"が入ってるか
         cancel_history = history_data.loc[condition]
         # ② indexを選択肢にする
