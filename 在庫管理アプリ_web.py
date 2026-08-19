@@ -278,7 +278,25 @@ with tab2:
 #出庫用チェック機能
 if submitted_stock:
     stock_in_out_check("出庫")
-
+#パターン別検索用関数
+def search_by_pattern(form_name,sub_header_name,session_key,pattern_name):
+    with st.form(form_name, clear_on_submit=True,enter_to_submit=False):
+            st.subheader(sub_header_name)
+            if sub_header_name=="使用会社別在庫検索":
+                select_name=["A会社","B会社","その他"]
+                select=st.selectbox("使用会社を選択してください",select_name)
+            elif sub_header_name=="形区分別在庫検索":
+                select_name=["A：製造","B：品管","C：事務所","D:物流"]
+                select=st.selectbox("形区分を選択してください",select_name)
+            st.session_state[session_key]=select
+            submitted=st.form_submit_button("検索")#調べる項目を増やすときはここに追加
+    if submitted:
+        condition=data[pattern_name]==st.session_state[session_key]
+        if condition.any():
+            st.subheader("商品情報")
+            st.dataframe(data.loc[condition].drop(columns=["発注日","納入予定日"]),hide_index=True)
+        else:
+            st.error(f"{st.session_state[session_key]}の商品は登録されていません")
 #在庫検索
 with search_tub:
     search_button_code("stock_search","在庫検索",data,"search_code")
@@ -286,7 +304,20 @@ with search_tub:
         st.subheader("商品情報")
         condition=data["資材コード"]==st.session_state["search_code"]
         st.dataframe(data.loc[condition].drop(columns=["発注日","納入予定日"]),hide_index=True)
-
+    with st.form("stock_company_search_form", clear_on_submit=True,enter_to_submit=False):
+        st.subheader("使用会社別在庫検索")
+        company_name=["A会社","B会社","その他"]
+        company=st.selectbox("使用会社を選択してください",company_name)
+        st.session_state["search_company"]=company
+        submitted=st.form_submit_button("検索")
+    if submitted:
+        condition=data["使用会社"]==st.session_state["search_company"]
+        if condition.any():
+            st.subheader("商品情報")
+            st.dataframe(data.loc[condition].drop(columns=["発注日","納入予定日"]),hide_index=True)
+        else:
+            st.error(f"{st.session_state['search_company']}の商品は登録されていません")
+    search_by_pattern("stock_section_search_form","形区分別在庫検索","section_search_select","形区分")
 #入出庫履歴
 with history_tub:
     search_button_code("stock_history_search","入出庫履歴",history_data,"history_search_code")
@@ -302,7 +333,7 @@ with show_tub:
  
 #登録用フォーム
 with register_tab:
-    with st.form("register_form", clear_on_submit=True):
+    with st.form("register_form", clear_on_submit=True,enter_to_submit=False):
         st.header("商品登録")#サブタイトル
         left,right=st.columns(2)
         with left:
