@@ -237,7 +237,6 @@ history_data["資材コード"] = (history_data["資材コード"].astype(int).a
 #メインタイトル
 st.title("在庫管理アプリ")
 
-st.write(data.dtypes)
 #タブ全体管理
 order_required = ((data["在庫数"] < data["最低在庫数"]) &(data["発注日"].isna()))
 if order_required.any():
