@@ -114,7 +114,10 @@ def history_search(search_code_name):
         condition=history_data["資材コード"]==st.session_state[search_code_name]
         display_data = history_data.loc[condition].copy()
         display_data["日時"] = pd.to_datetime(display_data["日時"]).dt.date
-        st.dataframe(display_data, hide_index=True)
+        item_name=history_data.loc[condition,"品名"].iloc[0]
+        st.write(f"資材コード：{st.session_state[search_code_name]}")
+        st.write(f"品名：{item_name}")
+        st.dataframe(display_data.drop(columns=["資材コード", "品名"]), hide_index=True)
         #history_data.loc[condition] で対象の履歴だけ取り出す
         #→ copy() で表示用にコピー
         #→ コピー側の「日時」だけ日付に変更
