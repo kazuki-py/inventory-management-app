@@ -5,7 +5,7 @@ import pandas as pd
 #スプレッドシートから読み込んだ表データをPythonで扱いやすくする
 from streamlit_gsheets import GSheetsConnection
 #StreamlitとGoogleスプレッドシートを接続するための機能
-from datetime import datetime
+from datetime import datetime,date
 #入出庫した瞬間の日時を取得
 SHEET_URL = st.secrets["connections"]["gsheets"]["spreadsheet"]#URLを隠す[]の所から持ってくる
 #ここから関数
@@ -501,7 +501,7 @@ else:
                     st.subheader("現在の情報")
                     order_condition=data["資材コード"]==st.session_state["order_search_code"]
                     st.dataframe(data.loc[order_condition,["資材コード", "品名", "型式・寸法","在庫数","最低在庫数"]],hide_index=True)
-                    order_date = st.date_input("発注日", value=datetime.date.today())
+                    order_date = st.date_input("発注日", value=date.today())
                     delivery_date = st.date_input("納入予定日 ※未定の場合は空欄のままにしてください", value=None)
                     submitted_order = st.form_submit_button("発注")
                 if submitted_order:
