@@ -113,8 +113,10 @@ def history_search(search_code_name):
     if search_code_name in st.session_state:
         st.subheader("入出庫履歴")
         condition=history_data["資材コード"]==st.session_state[search_code_name]
+        display_count = st.selectbox("表示件数",[10, 20, 50])
         display_data = history_data.loc[condition].copy()
         display_data["日時"] = pd.to_datetime(display_data["日時"]).dt.date
+        display_data = (display_data.sort_values("日時", ascending=False).head(display_count))
         item_name=history_data.loc[condition,"品名"].iloc[0]
         st.write(f"資材コード：{st.session_state[search_code_name]}")
         st.write(f"品名：{item_name}")
@@ -122,6 +124,8 @@ def history_search(search_code_name):
         #history_data.loc[condition] で対象の履歴だけ取り出す
         #→ copy() で表示用にコピー
         #→ コピー側の「日時」だけ日付に変更
+        #→ 表示件数を決める
+        #→ 表示件数分のデータが入る
         #→ st.dataframe() で表示
 
 #商品情報更新         
