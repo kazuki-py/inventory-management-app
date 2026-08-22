@@ -7,6 +7,9 @@ from streamlit_gsheets import GSheetsConnection
 #StreamlitとGoogleスプレッドシートを接続するための機能
 from datetime import datetime,date
 #入出庫した瞬間の日時を取得
+from io import BytesIO
+#BytesIO は簡単にいうと、ファイルをPCに保存せず、Pythonの中に一時的に持っておく入れ物
+## Excelファイルを一時的にメモリ上へ保存するために使用
 SHEET_URL = st.secrets["connections"]["gsheets"]["spreadsheet"]#URLを隠す[]の所から持ってくる
 #ここから関数
 
@@ -53,22 +56,6 @@ def stock_in_out_form(form_name,header_name,amount_name):#入出庫フォーム�
         submitted_stock = st.form_submit_button(header_name) 
         return  code,item,amount,submitted_stock
 
-def stock_fluc_save(stock_pattern,stock_typ):#入出庫数記録用関数
-    if stock_pattern=="資材コード":
-        condition=data["資材コード"]== code
-    elif stock_pattern=="品名":
-        condition=data["品名"]== item
-    if stock_typ=="入庫":
-        data.loc[condition,"在庫数"]+=amount
-    elif stock_typ=="出庫":
-        data.loc[condition,"在庫数"]-=amount
-    item_name=data.loc[condition,"品名"].iloc[0]
-    current_stock=int(data.loc[condition,"在庫数"].iloc[0])#入出庫後数量
-    save()
-    history_save(condition, amount, item_name, stock_typ, current_stock,"無")
-    st.success(f"{item_name}を{amount}個{stock_typ}しました")
-    st.write(f"現在の在庫数：{current_stock}個")
-
 def stock_in_out_check(stock_typ):#入出庫チェック用関数（記録用関数使用）
     if code:
         condition=data["資材コード"]== code
@@ -108,15 +95,127 @@ def stock_in_out_check(stock_typ):#入出庫チェック用関数（記録用関
     else:
         st.error("資材コードもしくは品名を入力してください")  
 
-#入出庫履歴用関数
+def stock_fluc_save(stock_pattern,stock_typ):#入出庫数記録用関数
+    if stock_pattern=="資材コード":
+        condition=data["資材コード"]== code
+    elif stock_pattern=="品名":
+        condition=data["品名"]== item
+    if stock_typ=="入庫":
+        data.loc[condition,"在庫数"]+=amount
+    elif stock_typ=="出庫":
+        data.loc[condition,"在庫数"]-=amount
+    item_name=data.loc[condition,"品名"].iloc[0]
+    current_stock=int(data.loc[condition,"在庫数"].iloc[0])#入出庫後数量
+    save()
+    history_save(condition, amount, item_name, stock_typ, current_stock,"無")
+    st.success(f"{item_name}を{amount}個{stock_typ}しました  \n現在の在庫数：{current_stock}個")
+    st.dataframe(history_data.loc[condition,["資材コード","品名","区分","数量","入出庫後在庫数"]],hide_index=True)
+
+#帳簿編集用関数
+def create_ledger(ledger_data,search_code_name):
+    #【初期設定】
+    item_condition=data["資材コード"]==st.session_state[search_code_name]
+    # excel_data：完成したExcelデータを入れておく箱
+    excel_data = BytesIO()
+    # writer：Excelを作ってexcel_dataへ書き込むための窓口
+    # with st.form()と同じように、with内がExcelを作成する範囲
+    with pd.ExcelWriter(excel_data, engine="xlsxwriter") as writer:
+        ledger_data = ledger_data.drop(columns=["資材コード", "品名"])
+        # ledger_dataの内容を表としてExcelへ書き込む
+        # startrow=6 → Excelの7行目から書き込み
+        ledger_data.to_excel(
+            writer,
+            sheet_name="在庫帳簿",
+            index=False,
+            startrow=7
+        )
+
+        # workbook：writerが作成しているExcelブック全体
+        workbook = writer.book
+
+        # worksheet：Excelブックの中の「在庫帳簿」シート
+        worksheet = writer.sheets["在庫帳簿"]
+
+        #【書式作成】
+        # タイトルに使用する書式を作成（別のシートでも使える）
+        title_format = workbook.add_format({
+            "bold": True,       # 太字
+            "font_size": 16,    # 文字サイズ
+            "align": "center",   # 中央揃え
+            "border": 1,
+            "bg_color":"#D9D9D9"
+        })#workbook.add_format:書式セットを作る」機能
+
+        #基本情報（ヘッダー部分）の書式
+        info_header_format = workbook.add_format({"bold": True,"border": 1,"bg_color":"#D9D9D9","align": "center"})
+
+        #基本情報（データ部分）の書式
+        info_data_format = workbook.add_format({"border": 1,"align": "center"})
+        #入出庫履歴（ヘッダー部分）の書式
+        header_format = workbook.add_format({
+                "bold": True,
+                "align": "center",
+                "border": 1,
+                "bg_color":"#D9D9D9"
+                        })
+                
+        
+        # 入出庫履歴（データ部分）の書式
+        data_format = workbook.add_format({"border": 1,"align": "center"})
+        
+        #【幅などの設定】
+        #列幅　worksheet.set_column("列範囲", 幅)
+        worksheet.set_column("A:A", 19)
+        worksheet.set_column("B:B", 10)
+        worksheet.set_column("C:C", 10)
+        worksheet.set_column("D:D", 16)
+        worksheet.set_column("E:E", 12)
+        worksheet.set_column("F:F", 12)
+
+        #【実際の書き込み内容】
+        # タイトル：A1～G1のセルを結合して書き込む
+        worksheet.merge_range("A1:F1","在 庫 帳 簿",title_format)
+
+        #備考
+        worksheet.write("A7", "備考")
+
+        #基本情報：worksheet.write(行, 列, 書き込む内容)セル名でもOK（ヘッダー・データ）
+        worksheet.write("A3", "資材コード",info_header_format)#worksheet.write(行, 列, 書き込む内容,書式)セル名でもOK
+        worksheet.write("B3", data.loc[item_condition,"資材コード"].iloc[0],info_data_format)
+        worksheet.write("D3", "品名",info_header_format)
+        worksheet.write("E3", data.loc[item_condition,"品名"].iloc[0],info_data_format)
+        worksheet.write("A4", "型式・寸法",info_header_format)
+        worksheet.write("B4", data.loc[item_condition,"型式・寸法"].iloc[0],info_data_format)
+        worksheet.write("D4", "使用会社",info_header_format)
+        worksheet.write("E4", data.loc[item_condition,"使用会社"].iloc[0],info_data_format)
+        worksheet.write("A5", "形区分",info_header_format)
+        worksheet.write("B5", data.loc[item_condition,"形区分"].iloc[0],info_data_format)
+
+        #入出庫履歴（ヘッダー部分）：worksheet.write(行, 列, 内容, 書式) enumerate():番号と列名を同時に取れる
+        for col_num, column_name in enumerate(ledger_data.columns):#columns:DataFrameの列名
+            worksheet.write(7,col_num,column_name,header_format)
+
+        # 入出庫履歴（データ部分）
+        for row_num, (_, row) in enumerate(ledger_data.iterrows()):
+        #row_num:連番 _:インデックス値を使わない
+            # 1行の中から値を1個ずつ取り出す
+            for col_num, value in enumerate(row):
+
+                worksheet.write(row_num + 8,  # 9行目から順番に書き込む（スタート値）
+                    col_num,value,data_format)
+
+    # withを抜けるとExcelの書き込みが終了して完成
+
+    # excel_dataの中から完成したExcelデータを取り出して返す
+    return excel_data.getvalue()
+#入出庫履歴検索用関数
 def history_search(search_code_name):
     if search_code_name in st.session_state:
-        st.subheader("入出庫履歴")
         condition=history_data["資材コード"]==st.session_state[search_code_name]
         display_count = st.selectbox("表示件数",[10, 20, 50])
         display_data = history_data.loc[condition].copy()
         display_data["日時"] = pd.to_datetime(display_data["日時"]).dt.date
-        display_data = (display_data.sort_values("日時", ascending=False).head(display_count))
+        display_data = (display_data.sort_values("日時", ascending=False).head(display_count).sort_values("日時", ascending=True))
         item_name=history_data.loc[condition,"品名"].iloc[0]
         st.write(f"資材コード：{st.session_state[search_code_name]}")
         st.write(f"品名：{item_name}")
@@ -125,8 +224,26 @@ def history_search(search_code_name):
         #→ copy() で表示用にコピー
         #→ コピー側の「日時」だけ日付に変更
         #→ 表示件数を決める
+        #→ 新しい順に並べ替える
         #→ 表示件数分のデータが入る
+        #→ 古い順に並べ替える
         #→ st.dataframe() で表示
+
+        # 帳簿に使用する履歴を取得
+        ledger_condition = history_data["資材コード"] == st.session_state["history_search_code"]
+        ledger_data = history_data.loc[ledger_condition].copy()
+
+        # 帳簿を作成
+        excel_bytes = create_ledger(ledger_data,search_code_name)
+
+        # 作成したExcelファイルをダウンロード
+        st.download_button(
+        "帳簿をダウンロード",    # ボタンに表示する名前
+        data=excel_bytes,        # ダウンロードするデータ
+        file_name=f"{item_name}_在庫帳簿.xlsx",  # 保存するときの名前
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                # xlsxファイルであることを指定
+        )
 
 #商品情報更新         
 def stock_update(column_name,update_name):#商品情報更新用関数
@@ -315,7 +432,7 @@ else:
 
     #在庫確認タブ
     with tab3:
-        search_tub,history_tub,show_tub=st.tabs(["在庫検索","入出庫履歴","在庫一覧"])
+        history_tub,search_tub,show_tub=st.tabs(["入出庫履歴（倉出管理表）","在庫検索","在庫一覧"])
 
     #在庫検索タブ(3段目)
     with search_tub:
@@ -346,7 +463,12 @@ else:
     #出庫用チェック機能
     if submitted_stock:
         stock_in_out_check("出庫")
-
+    
+    #入出庫履歴
+    with history_tub:
+        search_button_code("stock_history_search","入出庫履歴（倉出管理表）",history_data,"history_search_code")
+        history_search("history_search_code")
+        
     #在庫検索
     #資材コード検索
     with code_search_tub:
@@ -362,11 +484,6 @@ else:
         search_by_pattern("stock_company_search_form","使用会社","company_search_select")
         #形区分
         search_by_pattern("stock_section_search_form","形区分","section_search_select")
-
-    #入出庫履歴
-    with history_tub:
-        search_button_code("stock_history_search","入出庫履歴",history_data,"history_search_code")
-        history_search("history_search_code")
         
     #在庫一覧
     with show_tub:
