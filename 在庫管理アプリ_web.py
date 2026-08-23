@@ -293,42 +293,68 @@ def search_by_pattern(form_name,sub_header_name,session_key):
             st.error(f"{st.session_state[session_key]}の商品は登録されていません")
 
 #発注内容変更関数
-def order_change(cancel_change_condition, order_date, delivery_date):
+def order_change(cancel_change_condition, order_date, delivery_date,order_quantity):
     changed = False
-    if order_date and delivery_date:#発注日・納入予定日どちらも変更
+    if order_date and delivery_date:#発注日・納入予定日があれば
         if order_date>delivery_date:
             st.error("発注日が納入予定日を過ぎています")
-        else:
+        elif order_quantity:#発注数量もあればすべて変更
+            data.loc[cancel_change_condition, "発注日"] = str(order_date)
+            data.loc[cancel_change_condition, "納入予定日"] = str(delivery_date)
+            data.loc[cancel_change_condition, "発注数量"] = int(order_quantity)
+            changed = True
+            st.success("下記の通り、発注日・納入予定日・発注数量が変更されました")
+        else:#発注日・納入予定日を変更
             data.loc[cancel_change_condition, "発注日"] = str(order_date)
             data.loc[cancel_change_condition, "納入予定日"] = str(delivery_date)
             changed = True
             st.success("下記の通り、発注日・納入予定日が変更されました")
-    elif order_date:#発注日だけ変更
+    elif order_date:#発注日があれば
         code_delivery_date = data.loc[cancel_change_condition, "納入予定日"].iloc[0]
         if pd.notna(code_delivery_date):#code_delivery_dateにデータがあるなら
             code_delivery_date = pd.to_datetime(code_delivery_date).date()#比較のためdate型にそろえる
             if order_date>code_delivery_date:
                 st.error("発注日が納入予定日を過ぎています")
+            elif order_quantity:#発注数量もあれば発注日・発注数量変更
+                data.loc[cancel_change_condition, "発注日"] = str(order_date)
+                data.loc[cancel_change_condition, "発注数量"] = int(order_quantity)
+                changed = True
+                st.success("下記の通り、発注日・発注数量が変更されました")
+            else:#発注日のみ
+                data.loc[cancel_change_condition, "発注日"] = str(order_date)
+                changed = True
+                st.success("下記の通り、発注日が変更されました")
+        else:#納入予定日が事前に入ってないなら
+            if order_quantity:#発注数量もあれば発注日・発注数量変更
+                data.loc[cancel_change_condition, "発注日"] = str(order_date)
+                data.loc[cancel_change_condition, "発注数量"] = int(order_quantity)
+                changed = True
+                st.success("下記の通り、発注日・発注数量が変更されました")
             else:
                 data.loc[cancel_change_condition, "発注日"] = str(order_date)
                 changed = True
                 st.success("下記の通り、発注日が変更されました")
-        else:
-            data.loc[cancel_change_condition, "発注日"] = str(order_date)
-            changed = True
-            st.success("下記の通り、発注日が変更されました")
-    elif delivery_date:#納入予定日だけ変更
+    elif delivery_date:#納入予定日があれば
         code_order_date = data.loc[cancel_change_condition, "発注日"].iloc[0]
         if pd.notna(code_order_date):
             code_order_date = pd.to_datetime(code_order_date).date()
             if delivery_date<code_order_date:
                 st.error("納入予定日は発注日より後日にしてください")
-            else:
+            elif order_quantity:#発注数量もあれば納入予定日・発注数量変更
+                data.loc[cancel_change_condition, "納入予定日"] = str(delivery_date)
+                data.loc[cancel_change_condition, "発注数量"] = int(order_quantity)
+                changed = True
+                st.success("下記の通り、納入予定日・発注数量が変更されました")
+            else:#納入予定日を変更
                 data.loc[cancel_change_condition, "納入予定日"] = str(delivery_date)
                 changed = True
                 st.success("下記の通り、納入予定日が変更されました")
         else:#基本的は発注日はあるはずだがファイルが壊れた時などの保険
-            st.error("発注日が登録されていません")    
+            st.error("発注日が登録されていません")
+    elif order_quantity:#発注数量だけ変更
+        data.loc[cancel_change_condition, "発注数量"] = int(order_quantity)
+        changed = True
+        st.success("下記の通り、発注数量が変更されました")
     else:
         st.error("いずれかを入力してください")
     return changed
@@ -403,6 +429,7 @@ else:
     data["型式・寸法"] = data["型式・寸法"].astype("object")#文字列など色々な値を入れられる型
     data["発注日"] = data["発注日"].astype("object")#空欄が多いとfloat64になることがあるため変換
     data["納入予定日"] = data["納入予定日"].astype("object")
+    data["発注元"] = data["発注元"].astype("object")
 
     #履歴データ
     history_data = conn.read(spreadsheet=SHEET_URL, worksheet="入出庫履歴",ttl=0)
@@ -508,6 +535,7 @@ else:
                 company=st.selectbox("使用会社を選択してください",company_name)
                 section_name=["A：製造","B：品管","C：事務所","D：物流"]
                 section=st.selectbox("形区分を選択してください",section_name)
+                order_source = st.text_input("発注元を入力してください")
                 min_stock=st.number_input("最低在庫数",min_value=1)
                 confirm_min_stock = st.checkbox("最低在庫数を１個で登録する場合はこちらにチェック")
             submitted=st.form_submit_button("登録")
@@ -523,8 +551,11 @@ else:
             
         elif not item.strip():
             st.error("品名を入力してください")
+        elif not order_source.strip():
+            st.error("発注元を入力してください")
         elif min_stock==1 and not confirm_min_stock:#最低在庫数が1でチェックが入って無ければ
-            st.error("最低在庫数：チェックを入れるか数量を変更してください")     
+            st.error("最低在庫数：チェックを入れるか数量を変更してください")
+        
         else:
             new_data = pd.DataFrame([{
         "資材コード": code,
@@ -534,7 +565,9 @@ else:
         "最低在庫数": min_stock,
         "使用会社": company,
         "形区分": section,
-        "発注日": ""
+        "発注日": None,
+        "発注数量":None,
+        "発注元":order_source
     }])#入力した8項目を、スプレッドシートの1行分の表にする
         # 発注済みはGoogleスプレッドシートへの書き戻し時に
         # チェックボックスではなくTRUE/FALSE表示になるため現状維持
@@ -555,7 +588,7 @@ else:
             with st.form("stock_update", clear_on_submit=True,enter_to_submit=False):#更新用フォーム
                 st.subheader("現在の情報")
                 condition=data["資材コード"]==st.session_state["update_search_code"]
-                st.dataframe(data.loc[condition,["資材コード", "品名", "型式・寸法", "最低在庫数","使用会社"]],hide_index=True)
+                st.dataframe(data.loc[condition,["資材コード", "品名", "型式・寸法", "最低在庫数","使用会社","発注元"]],hide_index=True)
                 st.subheader("更新情報の入力")
                 st.write("※変更しない項目は空欄（最低在庫数は0）のままにしてください")
                 up_item=st.text_input("品名")
@@ -563,6 +596,7 @@ else:
                 up_min_stock=int(st.number_input("最低在庫数",min_value=0))
                 up_company_name=["","A会社","B会社","その他"]
                 up_company=st.selectbox("使用会社",up_company_name)
+                up_order_source = st.text_input("発注元")
                 submitted_stock_update = st.form_submit_button("更新")
 
             if submitted_stock_update:#更新チェック
@@ -579,14 +613,17 @@ else:
                 if up_company:
                     stock_update("使用会社",up_company)
                     update_notes.append("使用会社")
-                if not up_item and not up_model and not up_min_stock and not up_company: 
+                if up_order_source:
+                    stock_update("発注元",up_order_source)
+                    update_notes.append("発注元")
+                if not up_item and not up_model and not up_min_stock and not up_company and not up_order_source: 
                     st.error("いずれかを入力してください")
                 if  update_notes:
                     save()
                     st.subheader("今回の更新情報")
                     for update_note in update_notes:#
                         st.write(f"◆{update_note}")
-                    st.dataframe(data.loc[condition,[ "資材コード","品名", "型式・寸法", "最低在庫数","使用会社"]],hide_index=True)
+                    st.dataframe(data.loc[condition,[ "資材コード","品名", "型式・寸法", "最低在庫数","使用会社","発注元"]],hide_index=True)
 
     #商品削除（検索機能・削除フォーム・削除チェックあり）
     with delete_tab:
@@ -620,19 +657,24 @@ else:
                     st.dataframe(data.loc[order_condition,["資材コード", "品名", "型式・寸法","在庫数","最低在庫数"]],hide_index=True)
                     order_date = st.date_input("発注日", value=date.today())
                     delivery_date = st.date_input("納入予定日 ※未定の場合は空欄のままにしてください", value=None)
+                    order_quantity = st.number_input("発注数量",value=1)
+                    confirm_order_quantity = st.checkbox("発注数量を１個で発注する場合はこちらにチェック")
                     submitted_order = st.form_submit_button("発注")
                 if submitted_order:
                     if not order_date:
                         st.error("発注日を入力してください")
+                    elif order_quantity==1 and not confirm_order_quantity:
+                        st.error("発注数：チェックを入れるか数量を変更してください")     
                     elif delivery_date and order_date>delivery_date:
                         st.error("発注日が納入予定日を過ぎています")
                     else:
                         data.loc[order_condition, "発注日"] = str(order_date) #左のままだと文字列ではなくdate 型。
+                        data.loc[order_condition, "発注数量"] = int(order_quantity)
                         if delivery_date:
-                            data.loc[order_condition, "納入予定日"] = str(delivery_date)
+                            data.loc[order_condition, "納入予定日"] = delivery_date
                         save()
                         st.success("下記の通り、発注されました")
-                        st.dataframe(data.loc[order_condition,["資材コード","品名","型式・寸法","発注日","納入予定日"]],hide_index=True)
+                        st.dataframe(data.loc[order_condition,["資材コード","品名","型式・寸法","発注日","納入予定日","発注数量","発注元"]],hide_index=True)
                         
             st.subheader("⚠️ 発注確認")
             st.markdown(f"<span style='color:red;'>不足している部品が{condition.sum()}個あります、発注してください！</span>",
@@ -640,7 +682,7 @@ else:
             )#unsafe_allow_html=True → HTMLによる色・サイズなどの装飾を許可
             #conditionの中にTrueがいくつあるか（Trueは1　Falseは0　1の合計）
             #lenはTrueとFalseどっちの数も拾うためpandas（表）には使えない
-            st.dataframe(data.loc[condition,["資材コード", "品名", "型式・寸法", "在庫数", "最低在庫数"]],hide_index=True)
+            st.dataframe(data.loc[condition,["資材コード", "品名", "型式・寸法", "在庫数", "最低在庫数","発注元"]],hide_index=True)
 
         else:
             st.caption("✓ 不足している部品（未発注）はありません")
@@ -656,10 +698,14 @@ else:
                 if cancel_change_condition.any():
                     with st.form("order_cancel_change_form",clear_on_submit=True,enter_to_submit=False):
                         st.subheader("現在の情報")
-                        st.dataframe(data.loc[cancel_change_condition].drop(columns=["使用会社","形区分"]),hide_index=True)
+                        st.dataframe(data.loc[cancel_change_condition].drop(columns=["使用会社","形区分","発注元"]),hide_index=True)
+                        st.subheader("更新情報の入力")
+                        st.write("※更新しない項目は空欄（発注数量は0）のままにしてください")
+                        st.write("※発注取消の場合はすべて空欄のまま【発注取消ボタン】を押してください")
                         order_date = st.date_input("発注日", value=None)
                         delivery_date = st.date_input("納入予定日" ,value=None)
-                        st.write("※発注取消の場合は空欄のままボタンを押してください")
+                        order_quantity = st.number_input("発注数量",value=0)
+
                         submitted_order_cancel = st.form_submit_button("発注取消")
                         submitted_order_change = st.form_submit_button("発注内容変更")
                         if submitted_order_cancel or submitted_order_change:
@@ -667,14 +713,15 @@ else:
                             if submitted_order_cancel:
                                 data.loc[cancel_change_condition, "発注日"] = None
                                 data.loc[cancel_change_condition, "納入予定日"] = None
+                                data.loc[cancel_change_condition, "発注数量"] = None
                                 changed = True
-                                st.success("下記の通り、発注日・納入予定日が取り消されました")
+                                st.success("発注を取り消しました")
                                 
                             elif submitted_order_change:
-                                changed=order_change(cancel_change_condition, order_date, delivery_date)
+                                changed=order_change(cancel_change_condition, order_date, delivery_date,order_quantity)
                             if changed:
                                 save()
-                                st.dataframe(data.loc[cancel_change_condition].drop(columns=["使用会社","形区分"]),hide_index=True)
+                                st.dataframe(data.loc[cancel_change_condition].drop(columns=["使用会社","形区分","発注元"]),hide_index=True)
                 else:
                     st.error("この商品は発注されていません")
             st.markdown(
@@ -685,7 +732,7 @@ else:
             #<h3> ～ </h3> → 全体の文字サイズ
             #<span>★</span> → ★だけ追加で色を変更
             #&nbsp;は空白１個
-            st.dataframe(data.loc[already_ordered,["資材コード", "品名", "在庫数","発注日","納入予定日"]],hide_index=True)
+            st.dataframe(data.loc[already_ordered,["資材コード", "品名", "在庫数","発注日","納入予定日","発注数量"]],hide_index=True)
             
         else:
             st.caption("✓ 発注している部品はありません")
