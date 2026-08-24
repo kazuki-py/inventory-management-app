@@ -530,14 +530,17 @@ else:
                 item=st.text_input("品名を入力してください")
                 model=st.text_input("型式・寸法を入力してください")
                 stock=st.number_input("在庫数",min_value=0)
+                min_stock=st.number_input("最低在庫数",min_value=1)
+                confirm_min_stock = st.checkbox("最低在庫数を１個で登録する場合はこちらにチェック")
             with right:
                 company_name=["A会社","B会社","その他"]
                 company=st.selectbox("使用会社を選択してください",company_name)
                 section_name=["A：製造","B：品管","C：事務所","D：物流"]
                 section=st.selectbox("形区分を選択してください",section_name)
-                order_source = st.text_input("発注元を入力してください")
-                min_stock=st.number_input("最低在庫数",min_value=1)
-                confirm_min_stock = st.checkbox("最低在庫数を１個で登録する場合はこちらにチェック")
+                order_source_name=data["発注元"].dropna().unique().tolist()#列から重複無し・None 無しでリスト化
+                order_source_name.insert(0,"")#リストの頭に空白を追加
+                select_order_source = st.selectbox("発注元を履歴から選択する場合はこちらから",order_source_name)
+                order_source = st.text_input("発注元を新規に入力する場合はこちらから")
             submitted=st.form_submit_button("登録")
             # form：複数の入力項目と送信ボタンを1セットにする,登録用紙全体
             # submitted：登録ボタンが押されたかを受け取る,その用紙の「登録する」ボタン
@@ -548,15 +551,17 @@ else:
                 st.error("資材コードは8桁の数字で入力してください") 
         elif code in data["資材コード"].values:
             st.error("この資材コードは既に登録されています") 
-            
         elif not item.strip():
             st.error("品名を入力してください")
-        elif not order_source.strip():
-            st.error("発注元を入力してください")
         elif min_stock==1 and not confirm_min_stock:#最低在庫数が1でチェックが入って無ければ
             st.error("最低在庫数：チェックを入れるか数量を変更してください")
-        
+        elif select_order_source and order_source:
+            st.error("発注元はどちらかひとつに入力してください")
+        elif not select_order_source and not order_source.strip():
+            st.error("発注元をいずれかに入力してください")
         else:
+            if select_order_source:
+                order_source = select_order_source
             new_data = pd.DataFrame([{
         "資材コード": code,
         "品名": item,
