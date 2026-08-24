@@ -21,7 +21,7 @@ def save():#更新後のdataをスプレッドシートへ書き戻す
         spreadsheet=SHEET_URL,
         data=data)
     
-#履歴保存
+#入出庫履歴保存
 def history_save(condition, amount, item_name, stock_typ, current_stock,cancel_situation):
     global history_data
     code_number = data.loc[condition, "資材コード"].iloc[0]
@@ -44,7 +44,33 @@ def history_save(condition, amount, item_name, stock_typ, current_stock,cancel_s
     worksheet="入出庫履歴",
     data=history_data
 )
-    
+
+#発注履歴保存
+def order_save(condition_name, stock_typ,order_date,delivery_date,order_quantity):
+    global order_data
+    code_number = data.loc[condition_name, "資材コード"].iloc[0]
+    item_name = data.loc[condition_name, "品名"].iloc[0]
+
+    now = datetime.now().strftime("%Y/%m/%d %H:%M:%S")#その瞬間の日時がnowに入る　表示方法2026/08/16 16:52:31
+    new_order_data = pd.DataFrame([{
+        "日時":now,
+        "資材コード": code_number,
+        "品名": item_name,
+        "区分": stock_typ,
+        "発注日":order_date,
+        "納入予定日":delivery_date,
+        "発注数量": order_quantity,
+        "作業者":st.session_state["login_user"]
+        }])
+
+    order_data = pd.concat([order_data, new_order_data], ignore_index=True)
+
+    conn.update(
+    spreadsheet=SHEET_URL,
+    worksheet="発注履歴",
+    data=order_data
+)
+       
 #入出庫
 def stock_in_out_form(form_name,header_name,amount_name):#入出庫フォーム用関数
     with st.form(form_name, clear_on_submit=True,enter_to_submit=False):
@@ -431,10 +457,18 @@ else:
     data["納入予定日"] = data["納入予定日"].astype("object")
     data["発注元"] = data["発注元"].astype("object")
 
-    #履歴データ
+    #入出庫履歴データ
     history_data = conn.read(spreadsheet=SHEET_URL, worksheet="入出庫履歴",ttl=0)
     history_data = history_data.dropna(subset=["資材コード"])
     history_data["資材コード"] = (history_data["資材コード"].astype(int).astype(str).str.zfill(8))
+
+    #発注履歴データ
+    order_data = conn.read(spreadsheet=SHEET_URL, worksheet="発注履歴",ttl=0)
+    order_data = order_data.dropna(subset=["資材コード"])
+    order_data["資材コード"] = (order_data["資材コード"].astype(int).astype(str).str.zfill(8))
+    order_data["発注日"] = order_data["発注日"].astype("object")#空欄が多いとfloat64になることがあるため変換
+    order_data["納入予定日"] = order_data["納入予定日"].astype("object")
+    order_data["発注元"] = order_data["発注元"].astype("object")
 
     col1,col2=st.columns([3,1])
     #メインタイトル
@@ -473,7 +507,7 @@ else:
     #発注状況タブ
     with tab5:
         order_tub , already_ordered_tub= st.tabs(
-                ["発注","発注情報更新"])
+                ["発注","発注情報更変更（取消）"])
     
     #入庫用フォーム（タブ）
     with tab1:
@@ -678,6 +712,11 @@ else:
                         if delivery_date:
                             data.loc[order_condition, "納入予定日"] = delivery_date
                         save()
+                        if delivery_date:
+                            save_delivery_date = delivery_date
+                        else:
+                            save_delivery_date = "━"
+                        order_save(order_condition,"発注",order_date,save_delivery_date, order_quantity)
                         st.success("下記の通り、発注されました")
                         st.dataframe(data.loc[order_condition,["資材コード","品名","型式・寸法","発注日","納入予定日","発注数量","発注元"]],hide_index=True)
                         
@@ -696,7 +735,7 @@ else:
     with already_ordered_tub:    
         if already_ordered.any():#発注済みにTrueな物が一つでもあれば（発注の時に定義）
             #発注情報更新フォーム(検索あり)
-            search_button_code("order_cancel_change_search","発注情報更新",data,"cancel_change_search_code")
+            search_button_code("order_cancel_change_search","発注情報変更（取消）",data,"cancel_change_search_code")
             if "cancel_change_search_code" in st.session_state:
                 cancel_change_condition = ((data["資材コード"] == st.session_state["cancel_change_search_code"]) &
                 (data["発注日"].notna()))#資材コードと一致かつ発注日があるもの
@@ -720,10 +759,25 @@ else:
                                 data.loc[cancel_change_condition, "納入予定日"] = None
                                 data.loc[cancel_change_condition, "発注数量"] = None
                                 changed = True
+                                order_save(cancel_change_condition,"発注取消","取消","取消","取消")
                                 st.success("発注を取り消しました")
                                 
                             elif submitted_order_change:
                                 changed=order_change(cancel_change_condition, order_date, delivery_date,order_quantity)
+                                if changed:
+                                    if order_date==None:
+                                        save_order_date="━"
+                                    else:
+                                        save_order_date=order_date
+                                    if delivery_date==None:
+                                        save_delivery_date="━"
+                                    else:
+                                        save_delivery_date=delivery_date
+                                    if order_quantity==0:
+                                        save_order_quantity="━"
+                                    else:
+                                        save_order_quantity=order_quantity
+                                    order_save(cancel_change_condition, "発注内容変更",save_order_date,save_delivery_date,save_order_quantity)
                             if changed:
                                 save()
                                 st.dataframe(data.loc[cancel_change_condition].drop(columns=["使用会社","形区分","発注元"]),hide_index=True)
