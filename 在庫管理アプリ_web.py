@@ -466,9 +466,9 @@ else:
     order_data = conn.read(spreadsheet=SHEET_URL, worksheet="発注履歴",ttl=0)
     order_data = order_data.dropna(subset=["資材コード"])
     order_data["資材コード"] = (order_data["資材コード"].astype(int).astype(str).str.zfill(8))
-    order_data["発注日"] = order_data["発注日"].astype("object")#空欄が多いとfloat64になることがあるため変換
+    order_data["発注日"] = order_data["発注日"].astype("object")
     order_data["納入予定日"] = order_data["納入予定日"].astype("object")
-    order_data["発注元"] = order_data["発注元"].astype("object")
+    
 
     col1,col2=st.columns([3,1])
     #メインタイトル
