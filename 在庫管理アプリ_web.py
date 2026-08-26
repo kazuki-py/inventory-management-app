@@ -11,6 +11,7 @@ from io import BytesIO
 #BytesIO は簡単にいうと、ファイルをPCに保存せず、Pythonの中に一時的に持っておく入れ物
 ## Excelファイルを一時的にメモリ上へ保存するために使用
 SHEET_URL = st.secrets["connections"]["gsheets"]["spreadsheet"]#URLを隠す[]の所から持ってくる
+from zoneinfo import ZoneInfo
 #ここから関数
 
     
@@ -25,7 +26,7 @@ def save():#更新後のdataをスプレッドシートへ書き戻す
 def history_save(condition, amount, item_name, stock_typ, current_stock,cancel_situation):
     global history_data
     code_number = data.loc[condition, "資材コード"].iloc[0]
-    now = datetime.now().strftime("%Y/%m/%d %H:%M:%S")#その瞬間の日時がnowに入る　表示方法2026/08/16 16:52:31
+    now = datetime.now(ZoneInfo("Asia/Tokyo")).strftime("%Y/%m/%d %H:%M:%S")#その瞬間の東京の日時がnowに入る　表示方法2026/08/16 16:52:31
     new_history_data = pd.DataFrame([{
         "日時":now,
         "資材コード": code_number,
@@ -51,7 +52,7 @@ def order_save(condition_name, stock_typ,order_date,delivery_date,order_quantity
     code_number = data.loc[condition_name, "資材コード"].iloc[0]
     item_name = data.loc[condition_name, "品名"].iloc[0]
 
-    now = datetime.now().strftime("%Y/%m/%d %H:%M:%S")#その瞬間の日時がnowに入る　表示方法2026/08/16 16:52:31
+    now = datetime.now(ZoneInfo("Asia/Tokyo")).strftime("%Y/%m/%d %H:%M:%S")#その瞬間の日時がnowに入る　表示方法2026/08/16 16:52:31
     new_order_data = pd.DataFrame([{
         "日時":now,
         "資材コード": code_number,
@@ -908,7 +909,7 @@ else:
                             current_stock = data.loc[order_condition, "在庫数"].iloc[0]
                             min_stock = data.loc[order_condition, "最低在庫数"].iloc[0]
                             if current_stock + order_quantity < min_stock:
-                                st.warning("※納入後も最低在庫数を下回ります。発注数量を確認してください。")
+                                st.warning("※納入後も最低在庫数を下回ります。発注数量を確認してください")
                             data.loc[order_condition, "発注日"] = str(order_date) #左のままだと文字列ではなくdate 型。
                             data.loc[order_condition, "発注数量"] = int(order_quantity)
                             if delivery_date:
@@ -923,7 +924,7 @@ else:
                             st.dataframe(data.loc[order_condition,
                                                     ["資材コード","品名","型式・寸法","発注日","納入予定日","発注数量","単価（税抜）","発注元"]]
                                                     ,hide_index=True)
-                            st.warning("※発注書を保存するまで、この画面を閉じないでください。")
+                            st.warning("※発注書を保存するまで、この画面を閉じないでください")
                             order_excel = order_sheet(order_condition, order_quantity)
                             st.download_button(
                                 label="発注書をダウンロード",
