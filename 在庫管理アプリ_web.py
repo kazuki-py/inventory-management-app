@@ -135,7 +135,11 @@ def stock_fluc_save(stock_pattern,stock_typ):#入出庫数記録用関数
     save()
     history_save(condition, amount, item_name, stock_typ, current_stock,"無")
     st.success(f"{item_name}を{amount}個{stock_typ}しました  \n現在の在庫数：{current_stock}個")
-    st.dataframe(history_data.loc[condition,["資材コード","品名","区分","数量","入出庫後在庫数"]],hide_index=True)
+    code_number = data.loc[condition, "資材コード"].iloc[0]
+    history_condition = history_data["資材コード"] == code_number
+    st.dataframe(history_data.loc[
+            history_condition,
+            ["資材コード","品名","区分","数量","入出庫後在庫数"]],hide_index=True)
 
 #帳簿編集用関数
 def create_ledger(ledger_data,search_code_name):
@@ -318,6 +322,179 @@ def search_by_pattern(form_name,sub_header_name,session_key):
         else:
             st.error(f"{st.session_state[session_key]}の商品は登録されていません")
 
+#発注書編集用関数
+def order_sheet(order_condition, order_quantity):
+    #【初期設定】
+    code= data.loc[order_condition, "資材コード"].iloc[0]
+    item= data.loc[order_condition, "品名"].iloc[0]
+    model= data.loc[order_condition, "型式・寸法"].iloc[0]
+    unit_price= data.loc[order_condition, "単価（税抜）"].iloc[0]
+    price= unit_price*order_quantity
+    order_date_sheet = pd.to_datetime(data.loc[order_condition, "発注日"].iloc[0]).strftime("%Y/%m/%d")
+    #日付に変換してから表示形式を変える(発注日)　空白の場合は未定
+    delivery_date_value = data.loc[order_condition, "納入予定日"].iloc[0]
+    if pd.isna(delivery_date_value) or str(delivery_date_value).strip() == "":
+        delivery_date_sheet = "未定"
+    else:
+        delivery_date_sheet = pd.to_datetime(delivery_date_value).strftime("%Y/%m/%d")
+    #納入予定日
+    order_source = data.loc[order_condition, "発注元"].iloc[0]
+    source_condition = order_source_data["発注元"] == order_source
+    postal_code = order_source_data.loc[source_condition, "郵便番号"].iloc[0]
+    address = order_source_data.loc[source_condition, "住所"].iloc[0]
+    tel = order_source_data.loc[source_condition, "電話番号"].iloc[0]
+    fax = order_source_data.loc[source_condition, "FAX"].iloc[0]
+    person = order_source_data.loc[source_condition, "担当者名"].iloc[0]
+    # excel_data：完成したExcelデータを入れておく箱
+    excel_data = BytesIO()
+    # writer：Excelを作ってexcel_dataへ書き込むための窓口
+    # with st.form()と同じように、with内がExcelを作成する範囲
+    with pd.ExcelWriter(excel_data, engine="xlsxwriter") as writer:
+
+         # workbook：writerが作成しているExcelブック全体
+        workbook = writer.book
+
+        # 「発注書」シートを新しく作る
+        worksheet = workbook.add_worksheet("発注書")
+
+        #【書式作成】
+        ## タイトル
+        title_format = workbook.add_format({
+                    "bold": True,       # 太字
+                    "font_size": 20,    # 文字サイズ
+                    "align": "center",   # 中央揃え（横）
+                    "valign": "vcenter"  #中央揃え（縦）
+                })
+
+        #基本情報・金額詳細（２項目）（ヘッダー部分）
+        info_header_format = workbook.add_format({"border": 1,"bold": True,"bg_color":"#D9D9D9","align": "center"})
+
+        #基本情報・発注元情報（データ部分）
+        info_data_format = workbook.add_format({"border": 1,"align": "left","text_wrap": True})
+
+        #発注元情報（ヘッダー部分）
+        order_source_header_format = workbook.add_format({"border": 1,"bold": True,"bg_color":"#D9EAF7","align": "center"})
+
+        # 発注明細（ヘッダー）
+        order_header_format = workbook.add_format({
+            "border": 1,
+            "bold": True,
+            "bg_color": "#D9EAF7",
+            "align": "center",
+            "valign": "vcenter",
+            "font_name": "Yu Gothic",
+            "font_size": 10
+        })
+
+        # 発注明細（データ）
+        order_data_format = workbook.add_format({
+            "border": 1,
+            "align": "center",
+            "valign": "vcenter",
+            "font_name": "Yu Gothic",
+            "font_size": 10
+        })
+
+        #金額部分
+        price_format = workbook.add_format({
+            "border": 1,
+            "align": "center",
+            "valign": "vcenter",
+            "font_name": "Yu Gothic",
+            "font_size": 10,
+            "num_format": '#,##0"円"'
+        })
+
+        #税抜合計
+        total_price_format= workbook.add_format({
+            "border": 1,
+            "bold": True,
+            "align": "center",
+            "valign": "vcenter",
+            "font_name": "Yu Gothic",
+            "font_size": 10,
+            "num_format": '#,##0"円"'
+        })
+
+        #金額詳細（合計金額）
+        total_price_header_format = workbook.add_format({"border": 1,"bold": True,"bg_color":"#D9EAF7","align": "center"})
+
+        #【幅などの設定】
+        #列幅　worksheet.set_column("列範囲", 幅)
+        worksheet.set_column("A:A", 4)
+        worksheet.set_column("B:B", 13)
+        worksheet.set_column("C:C", 15)
+        worksheet.set_column("D:D", 15)
+        worksheet.set_column("E:E", 8)
+        worksheet.set_column("F:F", 14)
+        worksheet.set_column("G:G", 14)
+        worksheet.set_column("H:H", 14)
+
+        #【実際の書き込み内容】
+        # タイトル：A1～G1のセルを結合して書き込む
+        worksheet.merge_range("A1:H2","発注書",title_format)
+
+        #基本情報：worksheet.write(行, 列, 書き込む内容)セル名でもOK（ヘッダー・データ）
+        worksheet.merge_range("A4:B4", "発注先",info_header_format)#worksheet.write(行, 列, 書き込む内容,書式)セル名でもOK
+        worksheet.merge_range("C4:D4",order_source,info_data_format)
+        worksheet.merge_range("A5:B5", "発注日",info_header_format)
+        worksheet.merge_range("C5:D5",order_date_sheet,info_data_format)
+        worksheet.merge_range("A6:B6", "発注担当者",info_header_format)
+        worksheet.merge_range("C6:D6",st.session_state["login_user"],info_data_format)
+        worksheet.merge_range("A7:B7", "備考",info_header_format)
+        worksheet.merge_range("C7:D7","下記の通り発注いたします",info_data_format)
+
+        #発注元情報（ヘッダー・データ）
+        worksheet.merge_range("F4:H4", "発注元情報",order_source_header_format)
+        worksheet.merge_range("F5:H5", order_source, info_data_format)
+        worksheet.merge_range("F6:H6", "〒" + postal_code, info_data_format)
+        worksheet.merge_range("F7:H7", address, info_data_format)
+        worksheet.merge_range("F8:H8", "TEL：" + tel + " FAX：" + fax, info_data_format)
+        worksheet.merge_range("F9:H9", "担当者：" + person, info_data_format)
+
+        #発注明細（ヘッダー）
+        worksheet.write("A11", "No.", order_header_format)
+        worksheet.write("B11", "資材コード", order_header_format)
+        worksheet.write("C11", "品名", order_header_format)
+        worksheet.write("D11", "型式・寸法", order_header_format)
+        worksheet.write("E11", "発注数量", order_header_format)
+        worksheet.write("F11", "単価（税抜）", order_header_format)
+        worksheet.write("G11", "金額（税抜）", order_header_format)
+        worksheet.write("H11", "納入予定日", order_header_format)
+
+        #発注明細（データ）
+        #表フォーマット
+        # 12～21行目まで明細欄を作る　No.1→右空欄7つ→No.2→右空欄7つ
+        # (外側のforが1周終わるには、中のforも全部終わる必要がある)
+        for no in range(1, 11):#no.1～no10まで
+            row_num = 10 + no
+
+            # No.だけ最初から入力
+            worksheet.write(row_num, 0, no, order_data_format)
+
+            # その他は空欄（０列（NO.）から１つずつずらして空欄を作ってる）
+            for col_num in range(1, 8):
+                worksheet.write(row_num, col_num, "", order_data_format)
+        #１行目の内容
+        worksheet.write("B12", code, order_data_format)
+        worksheet.write("C12", item, order_data_format)
+        worksheet.write("D12", model, order_data_format)
+        worksheet.write("E12", order_quantity, order_data_format)
+        worksheet.write("F12", unit_price, price_format)
+        worksheet.write("G12", price, price_format)
+        worksheet.write("H12", delivery_date_sheet, order_data_format)
+
+        #合計金額欄
+        worksheet.merge_range("F23:G23", "税抜金額", info_header_format)
+        worksheet.merge_range("F24:G24", "消費税（10％）", info_header_format)
+        worksheet.merge_range("F25:G25", "税込合計", total_price_header_format)
+        worksheet.write_formula("H23", "=SUM(G12:G21)", price_format)   
+        worksheet.write_formula("H24", "=ROUND(H23*0.1,0)", price_format)  
+        worksheet.write_formula("H25", "=H23+H24", total_price_format)  
+
+    excel_data.seek(0)
+    return excel_data
+
 #発注内容変更関数
 def order_change(cancel_change_condition, order_date, delivery_date,order_quantity):
     changed = False
@@ -444,7 +621,8 @@ else:
     conn=st.connection("gsheets", type=GSheetsConnection)
     #「gsheetsという設定を使って、Googleスプレッドシートとの接続を作ってね」
 
-    data=conn.read(spreadsheet=SHEET_URL,ttl=0)#在庫データ
+    #在庫一覧データ
+    data=conn.read(spreadsheet=SHEET_URL,ttl=0)
     #data:スプレッドシートから読み込んだデータを入れておく変数,conn.read():スプレッドシートを読み込む
     #ttl=0は、ざっくり言えば読み込み結果を長くキャッシュせず、最新のシートを読み直すための設定
     data = data.dropna(subset=["資材コード"])
@@ -468,12 +646,14 @@ else:
     order_data["資材コード"] = (order_data["資材コード"].astype(int).astype(str).str.zfill(8))
     order_data["発注日"] = order_data["発注日"].astype("object")
     order_data["納入予定日"] = order_data["納入予定日"].astype("object")
-    
+
+    #発注元マスタデータ
+    order_source_data = conn.read(spreadsheet=SHEET_URL,worksheet="発注元マスタ",ttl=0)
 
     col1,col2=st.columns([3,1])
     #メインタイトル
     with col1:
-        st.title("在庫管理アプリ")
+        st.title("資材管理システム")
     with col2:
         st.write(f"ログイン中：{st.session_state['login_user']}")
         if st.button("ログアウト"):
@@ -507,7 +687,7 @@ else:
     #発注状況タブ
     with tab5:
         order_tub , already_ordered_tub= st.tabs(
-                ["発注","発注情報更変更（取消）"])
+                ["発注","発注情報変更（取消）"])
     
     #入庫用フォーム（タブ）
     with tab1:
@@ -571,6 +751,7 @@ else:
                 company=st.selectbox("使用会社を選択してください",company_name)
                 section_name=["A：製造","B：品管","C：事務所","D：物流"]
                 section=st.selectbox("形区分を選択してください",section_name)
+                unit_price = st.number_input("単価（税抜）※不明の場合は0のまま", min_value=0)
                 order_source_name=data["発注元"].dropna().unique().tolist()#列から重複無し・None 無しでリスト化
                 order_source_name.insert(0,"")#リストの頭に空白を追加
                 select_order_source = st.selectbox("発注元を履歴から選択する場合はこちらから",order_source_name)
@@ -606,6 +787,7 @@ else:
         "形区分": section,
         "発注日": None,
         "発注数量":None,
+        "単価（税抜）":unit_price,
         "発注元":order_source
     }])#入力した8項目を、スプレッドシートの1行分の表にする
         # 発注済みはGoogleスプレッドシートへの書き戻し時に
@@ -627,14 +809,15 @@ else:
             with st.form("stock_update", clear_on_submit=True,enter_to_submit=False):#更新用フォーム
                 st.subheader("現在の情報")
                 condition=data["資材コード"]==st.session_state["update_search_code"]
-                st.dataframe(data.loc[condition,["資材コード", "品名", "型式・寸法", "最低在庫数","使用会社","発注元"]],hide_index=True)
+                st.dataframe(data.loc[condition,["資材コード", "品名", "型式・寸法", "最低在庫数","使用会社","単価（税抜）","発注元"]],hide_index=True)
                 st.subheader("更新情報の入力")
-                st.write("※変更しない項目は空欄（最低在庫数は0）のままにしてください")
+                st.write("※変更しない項目は空欄（最低在庫数・単価（税抜）は0）のままにしてください")
                 up_item=st.text_input("品名")
                 up_model=st.text_input("型式・寸法")
                 up_min_stock=int(st.number_input("最低在庫数",min_value=0))
                 up_company_name=["","A会社","B会社","その他"]
                 up_company=st.selectbox("使用会社",up_company_name)
+                up_unit_price = st.number_input("単価（税抜)", min_value=0)
                 up_order_source = st.text_input("発注元")
                 submitted_stock_update = st.form_submit_button("更新")
 
@@ -652,17 +835,20 @@ else:
                 if up_company:
                     stock_update("使用会社",up_company)
                     update_notes.append("使用会社")
+                if up_unit_price:
+                    stock_update("単価（税抜）",up_unit_price)
+                    update_notes.append("単価（税抜）")
                 if up_order_source:
                     stock_update("発注元",up_order_source)
                     update_notes.append("発注元")
-                if not up_item and not up_model and not up_min_stock and not up_company and not up_order_source: 
+                if not up_item and not up_model and not up_min_stock and not up_company and not up_order_source and not up_unit_price: 
                     st.error("いずれかを入力してください")
                 if  update_notes:
                     save()
                     st.subheader("今回の更新情報")
                     for update_note in update_notes:#
                         st.write(f"◆{update_note}")
-                    st.dataframe(data.loc[condition,[ "資材コード","品名", "型式・寸法", "最低在庫数","使用会社","発注元"]],hide_index=True)
+                    st.dataframe(data.loc[condition,[ "資材コード","品名", "型式・寸法", "最低在庫数","使用会社","単価（税抜）","発注元"]],hide_index=True)
 
     #商品削除（検索機能・削除フォーム・削除チェックあり）
     with delete_tab:
@@ -686,40 +872,67 @@ else:
     with order_tub:
         condition =((data["在庫数"] < data["最低在庫数"]) &
         (data["発注日"].isna()))#isna() は、その値が NaN（欠損値・空欄）かどうかを見る
-        already_ordered=data["発注日"].notna()#notna() は、その値が 入ってるかどうかを見る
         if condition.any():#condition(最低在庫数以下の在庫数)の中にTrueが1つでもあるなら
             search_button_code("order_search","発注",data,"order_search_code")
             if "order_search_code" in st.session_state:
-                with st.form("order_form",clear_on_submit=True,enter_to_submit=False):
-                    st.subheader("現在の情報")
-                    order_condition=data["資材コード"]==st.session_state["order_search_code"]
-                    st.dataframe(data.loc[order_condition,["資材コード", "品名", "型式・寸法","在庫数","最低在庫数"]],hide_index=True)
-                    order_date = st.date_input("発注日", value=date.today())
-                    delivery_date = st.date_input("納入予定日 ※未定の場合は空欄のままにしてください", value=None)
-                    order_quantity = st.number_input("発注数量",value=1)
-                    confirm_order_quantity = st.checkbox("発注数量を１個で発注する場合はこちらにチェック")
-                    submitted_order = st.form_submit_button("発注")
-                if submitted_order:
-                    if not order_date:
-                        st.error("発注日を入力してください")
-                    elif order_quantity==1 and not confirm_order_quantity:
-                        st.error("発注数：チェックを入れるか数量を変更してください")     
-                    elif delivery_date and order_date>delivery_date:
-                        st.error("発注日が納入予定日を過ぎています")
-                    else:
-                        data.loc[order_condition, "発注日"] = str(order_date) #左のままだと文字列ではなくdate 型。
-                        data.loc[order_condition, "発注数量"] = int(order_quantity)
-                        if delivery_date:
-                            data.loc[order_condition, "納入予定日"] = delivery_date
-                        save()
-                        if delivery_date:
-                            save_delivery_date = delivery_date
+                order_condition = (
+                (data["資材コード"] == st.session_state["order_search_code"]) &
+                (data["在庫数"] < data["最低在庫数"]) &
+                (data["発注日"].isna())
+                )
+                if order_condition.any():
+                    with st.form("order_form",clear_on_submit=True,enter_to_submit=False):
+                        st.subheader("現在の情報")
+                        st.dataframe(data.loc[order_condition,["資材コード", "品名", "型式・寸法","在庫数","最低在庫数"]],hide_index=True)
+                        order_date = st.date_input("発注日", value=date.today())
+                        delivery_date = st.date_input("納入予定日 ※未定の場合は空欄のままにしてください", value=None)
+                        order_quantity = st.number_input("発注数量",value=1,min_value=1)
+                        confirm_order_quantity = st.checkbox("発注数量を１個で発注する場合はこちらにチェック")
+                        submitted_order = st.form_submit_button("発注")
+                    if submitted_order:
+                        order_source = data.loc[order_condition, "発注元"].iloc[0]
+                        unit_price = int(data.loc[order_condition, "単価（税抜）"].iloc[0])
+                        if not order_source:
+                            st.error("発注元が登録されていません。商品情報更新から発注元を登録してください")  
+                        elif not order_source in order_source_data["発注元"].values:
+                            st.error("発注元がマスタデータに登録されていません。PCから登録してください")  
+                        elif unit_price == 0:
+                            st.error("単価が登録されていません。商品情報更新から単価を登録してください")
+                        elif not order_date:
+                            st.error("発注日を入力してください")
+                        elif delivery_date and order_date>delivery_date:
+                            st.error("発注日が納入予定日を過ぎています")
+                        elif order_quantity==1 and not confirm_order_quantity:
+                            st.error("発注数：チェックを入れるか数量を変更してください")     
                         else:
-                            save_delivery_date = "━"
-                        order_save(order_condition,"発注",order_date,save_delivery_date, order_quantity)
-                        st.success("下記の通り、発注されました")
-                        st.dataframe(data.loc[order_condition,["資材コード","品名","型式・寸法","発注日","納入予定日","発注数量","発注元"]],hide_index=True)
-                        
+                            current_stock = data.loc[order_condition, "在庫数"].iloc[0]
+                            min_stock = data.loc[order_condition, "最低在庫数"].iloc[0]
+                            if current_stock + order_quantity < min_stock:
+                                st.warning("※納入後も最低在庫数を下回ります。発注数量を確認してください。")
+                            data.loc[order_condition, "発注日"] = str(order_date) #左のままだと文字列ではなくdate 型。
+                            data.loc[order_condition, "発注数量"] = int(order_quantity)
+                            if delivery_date:
+                                data.loc[order_condition, "納入予定日"] = delivery_date
+                            save()
+                            if delivery_date:
+                                save_delivery_date = delivery_date
+                            else:
+                                save_delivery_date = "━"
+                            order_save(order_condition,"発注",order_date,save_delivery_date, order_quantity)
+                            st.success("下記の通り、発注されました、発注書をダウンロードしてください")
+                            st.dataframe(data.loc[order_condition,
+                                                    ["資材コード","品名","型式・寸法","発注日","納入予定日","発注数量","単価（税抜）","発注元"]]
+                                                    ,hide_index=True)
+                            st.warning("※発注書を保存するまで、この画面を閉じないでください。")
+                            order_excel = order_sheet(order_condition, order_quantity)
+                            st.download_button(
+                                label="発注書をダウンロード",
+                                data=order_excel,
+                                file_name="発注書.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                            )
+                else:
+                    st.error("この商品は現在、発注対象ではありません")       
             st.subheader("⚠️ 発注確認")
             st.markdown(f"<span style='color:red;'>不足している部品が{condition.sum()}個あります、発注してください！</span>",
                 unsafe_allow_html=True
@@ -732,8 +945,9 @@ else:
             st.caption("✓ 不足している部品（未発注）はありません")
 
     #発注情報更新（検索機能・変更/検索フォーム・更新チェック（関数）あり）
-    with already_ordered_tub:    
-        if already_ordered.any():#発注済みにTrueな物が一つでもあれば（発注の時に定義）
+    with already_ordered_tub: 
+        already_ordered=data["発注日"].notna()#notna() は、その値が 入ってるかどうかを見る   
+        if already_ordered.any():#発注済みにTrueな物が一つでもあれば
             #発注情報更新フォーム(検索あり)
             search_button_code("order_cancel_change_search","発注情報変更（取消）",data,"cancel_change_search_code")
             if "cancel_change_search_code" in st.session_state:
@@ -748,7 +962,7 @@ else:
                         st.write("※発注取消の場合はすべて空欄のまま【発注取消ボタン】を押してください")
                         order_date = st.date_input("発注日", value=None)
                         delivery_date = st.date_input("納入予定日" ,value=None)
-                        order_quantity = st.number_input("発注数量",value=0)
+                        order_quantity = st.number_input("発注数量",value=0,min_value=0)
 
                         submitted_order_cancel = st.form_submit_button("発注取消")
                         submitted_order_change = st.form_submit_button("発注内容変更")
@@ -761,6 +975,7 @@ else:
                                 changed = True
                                 order_save(cancel_change_condition,"発注取消","取消","取消","取消")
                                 st.success("発注を取り消しました")
+                                st.warning("※保存済みの発注書がある場合は、使用しないように発注書を削除してください")
                                 
                             elif submitted_order_change:
                                 changed=order_change(cancel_change_condition, order_date, delivery_date,order_quantity)
@@ -778,6 +993,7 @@ else:
                                     else:
                                         save_order_quantity=order_quantity
                                     order_save(cancel_change_condition, "発注内容変更",save_order_date,save_delivery_date,save_order_quantity)
+                                    st.warning("※保存済みの発注書がある場合は、発注書の内容も更新してください")
                             if changed:
                                 save()
                                 st.dataframe(data.loc[cancel_change_condition].drop(columns=["使用会社","形区分","発注元"]),hide_index=True)
