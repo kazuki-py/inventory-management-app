@@ -11,7 +11,8 @@ from io import BytesIO
 #BytesIO は簡単にいうと、ファイルをPCに保存せず、Pythonの中に一時的に持っておく入れ物
 ## Excelファイルを一時的にメモリ上へ保存するために使用
 SHEET_URL = st.secrets["connections"]["gsheets"]["spreadsheet"]#URLを隠す[]の所から持ってくる
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo#時間（場所）関係
+import bcrypt#パスワード関係
 #ここから関数
 
     
@@ -624,7 +625,10 @@ if "login_user" not in st.session_state:
     if submitted:
         if user_id in st.secrets["users"]:
             #入力したIDが登録されているか(secrets["users"]に入っていない)
-            if st.secrets["users"][user_id] == password:
+            if bcrypt.checkpw(
+                        password.encode("utf-8"),
+                        st.secrets["users"][user_id].encode("utf-8")
+                    ):
                 #secrets.tomlのusersのuser_idと一致したものを取り出す
                 #＝secrets.tomlでパスワードを代入しているのでそのパスワードが入る
                 #そのパスワードと入力したパスワードが一致すれば
@@ -737,20 +741,26 @@ else:
     
     #入庫用フォーム（タブ）
     with tab1:
-        code,item,amount,submitted_stock=stock_in_out_form("stock_in_form","入庫","入庫数")
+        if inventory_data["棚卸モード"].iloc[0] == "ON":
+            st.warning("現在棚卸中のため、入出庫できません")
+        else:
+            code,item,amount,submitted_stock=stock_in_out_form("stock_in_form","入庫","入庫数")
 
-    #入庫用チェック機能    
-    if submitted_stock:
-        stock_in_out_check("入庫")
+            #入庫用チェック機能    
+            if submitted_stock:
+                stock_in_out_check("入庫")
 
     #出庫用フォーム（タブ）
     with tab2:
-        code,item,amount,submitted_stock=stock_in_out_form("stock_out_form","出庫","出庫数") 
+        if inventory_data["棚卸モード"].iloc[0] == "ON":
+            st.warning("現在棚卸中のため、入出庫できません")
+        else:
+            code,item,amount,submitted_stock=stock_in_out_form("stock_out_form","出庫","出庫数") 
 
-    #出庫用チェック機能
-    if submitted_stock:
-        stock_in_out_check("出庫")
-    
+            #出庫用チェック機能
+            if submitted_stock:
+                stock_in_out_check("出庫")
+            
     #入出庫履歴
     with history_tub:
         search_button_code("stock_history_search","入出庫履歴（倉出管理表）",history_data,"history_search_code")
