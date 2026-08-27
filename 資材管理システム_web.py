@@ -142,6 +142,26 @@ def stock_fluc_save(stock_pattern,stock_typ):#入出庫数記録用関数
             history_condition,
             ["資材コード","品名","区分","数量","入出庫後在庫数"]],hide_index=True)
 
+#一覧ソート用関数
+def show_stock (button_name,sort_typ_name=None,sort_name=None):
+    #button_nameは必須。でも残り2つは必要なときだけ渡してね(引数を省略したら自動的に None が入る)
+    if button_name:
+        if sort_typ_name is None:
+            # 絞り込みなし＝全品目
+            st.dataframe(data[[
+                "資材コード","品名","型式・寸法","在庫数","最低在庫数","使用会社","形区分"]],
+            hide_index=True,
+            use_container_width=True)
+            #use_container_width=True：画面いっぱいに広げる
+        else:
+            condition=data[sort_typ_name]==sort_name
+            st.write(sort_name)
+            st.dataframe(data.loc[
+                condition,[
+                "資材コード","品名","型式・寸法","在庫数","最低在庫数","使用会社","形区分"]],
+                hide_index=True,
+                use_container_width=True)
+            
 #帳簿編集用関数
 def create_ledger(ledger_data,search_code_name):
     #【初期設定】
@@ -610,6 +630,8 @@ if "login_user" not in st.session_state:
                 #そのパスワードと入力したパスワードが一致すれば
                 st.session_state["login_user"] = user_id
                 #ログイン中のユーザーIDが入る
+                st.session_state["login_role"] = st.secrets["roles"][user_id]
+                #ログイン中のユーザーIDに対応する権限をlogin_roleに保存
                 st.rerun()
                 #画面の最初に戻るがif "login_user" not in st.session_state:
                 #に流れないためアプリに入る
@@ -651,16 +673,39 @@ else:
     #発注元マスタデータ
     order_source_data = conn.read(spreadsheet=SHEET_URL,worksheet="発注元マスタ",ttl=0)
 
+    inventory_data = conn.read(spreadsheet=SHEET_URL,worksheet="棚卸モード切替用（触らない）",ttl=0)
+    #初期値OFF
+  
+
     col1,col2=st.columns([3,1])
     #メインタイトル
     with col1:
         st.title("資材管理システム")
+
+    #ログアウト
     with col2:
         st.write(f"ログイン中：{st.session_state['login_user']}")
         if st.button("ログアウト"):
             del st.session_state["login_user"]
+            del st.session_state["login_role"]
             st.rerun()
 
+    #棚卸モード
+    if st.session_state["login_role"] == "管理者":
+        inventory_btton= st.button("棚卸モード")
+        if inventory_btton:
+            if  inventory_data["棚卸モード"].iloc[0]=="OFF":
+                inventory_data.loc[inventory_data["棚卸モード"]=="OFF","棚卸モード"]="ON"
+                st.success("棚卸モードをONにしました")
+            else:
+                inventory_data.loc[inventory_data["棚卸モード"]=="ON","棚卸モード"]="OFF"
+                st.success("棚卸モードをOFFにしました")
+            conn.update(
+            spreadsheet=SHEET_URL,
+            worksheet="棚卸モード切替用（触らない）",
+            data=inventory_data)
+
+        st.write(f"現在の状態：{inventory_data["棚卸モード"].iloc[0]}")
     #タブ全体管理
     #発注状況表示（tab5）
     order_required = ((data["在庫数"] < data["最低在庫数"]) &(data["発注日"].isna()))
@@ -726,214 +771,244 @@ else:
         search_by_pattern("stock_company_search_form","使用会社","company_search_select")
         #形区分
         search_by_pattern("stock_section_search_form","形区分","section_search_select")
-        
+                
     #在庫一覧
     with show_tub:
         with st.container(border=True):#下部をひとつにまとめる、border=True（枠を作る）
             #閲覧者を増やす場合は共有に追加
             st.header("在庫一覧")
             st.write("在庫を確認できます")
-            st.link_button("在庫一覧を開く",SHEET_URL)
-    
+            col1,col2,col3=st.columns([1,1,1])
+            with col1:
+                all_button=st.button("全品目", use_container_width=True)
+            show_stock (all_button)
+                
+            with col2:
+                company_button=st.button("使用会社別", use_container_width=True)
+            show_stock (company_button,"使用会社","A会社")
+            show_stock (company_button,"使用会社","B会社")
+            show_stock (company_button,"使用会社","その他")
+
+            with col3:
+                section_button=st.button("形区分別", use_container_width=True)
+            show_stock (section_button,"形区分","A：製造")
+            show_stock (section_button,"形区分","B：品管")
+            show_stock (section_button,"形区分","C：事務所")
+            show_stock (section_button,"形区分","D：物流")
+            
+
     #登録用フォーム
     with register_tab:
-        with st.form("register_form", clear_on_submit=True,enter_to_submit=False):
-            st.header("商品登録")#サブタイトル
-            left,right=st.columns(2)
-            with left:
-                code=st.text_input("資材コードを入力してください")
-                item=st.text_input("品名を入力してください")
-                model=st.text_input("型式・寸法を入力してください")
-                stock=st.number_input("在庫数",min_value=0)
-                min_stock=st.number_input("最低在庫数",min_value=1)
-                confirm_min_stock = st.checkbox("最低在庫数を１個で登録する場合はこちらにチェック")
-            with right:
-                company_name=["A会社","B会社","その他"]
-                company=st.selectbox("使用会社を選択してください",company_name)
-                section_name=["A：製造","B：品管","C：事務所","D：物流"]
-                section=st.selectbox("形区分を選択してください",section_name)
-                unit_price = st.number_input("単価（税抜）※不明の場合は0のまま", min_value=0)
-                order_source_name=data["発注元"].dropna().unique().tolist()#列から重複無し・None 無しでリスト化
-                order_source_name.insert(0,"")#リストの頭に空白を追加
-                select_order_source = st.selectbox("発注元を履歴から選択する場合はこちらから",order_source_name)
-                order_source = st.text_input("発注元を新規に入力する場合はこちらから")
-            submitted=st.form_submit_button("登録")
+        if st.session_state["login_role"] == "管理者":
+            with st.form("register_form", clear_on_submit=True,enter_to_submit=False):
+                st.header("商品登録")#サブタイトル
+                left,right=st.columns(2)
+                with left:
+                    code=st.text_input("資材コードを入力してください")
+                    item=st.text_input("品名を入力してください")
+                    model=st.text_input("型式・寸法を入力してください")
+                    stock=st.number_input("在庫数",min_value=0)
+                    min_stock=st.number_input("最低在庫数",min_value=1)
+                    confirm_min_stock = st.checkbox("最低在庫数を１個で登録する場合はこちらにチェック")
+                with right:
+                    company_name=["A会社","B会社","その他"]
+                    company=st.selectbox("使用会社を選択してください",company_name)
+                    section_name=["A：製造","B：品管","C：事務所","D：物流"]
+                    section=st.selectbox("形区分を選択してください",section_name)
+                    unit_price = st.number_input("単価（税抜）※不明の場合は0のまま", min_value=0)
+                    order_source_name=data["発注元"].dropna().unique().tolist()#列から重複無し・None 無しでリスト化
+                    order_source_name.insert(0,"")#リストの頭に空白を追加
+                    select_order_source = st.selectbox("発注元を履歴から選択する場合はこちらから",order_source_name)
+                    order_source = st.text_input("発注元を新規に入力する場合はこちらから")
+                submitted=st.form_submit_button("登録")
             # form：複数の入力項目と送信ボタンを1セットにする,登録用紙全体
             # submitted：登録ボタンが押されたかを受け取る,その用紙の「登録する」ボタン
-            
-    #登録用チェック機能
-    if submitted:
-        if not code.isdigit() or len(code)!= 8:
-                st.error("資材コードは8桁の数字で入力してください") 
-        elif code in data["資材コード"].values:
-            st.error("この資材コードは既に登録されています") 
-        elif not item.strip():
-            st.error("品名を入力してください")
-        elif min_stock==1 and not confirm_min_stock:#最低在庫数が1でチェックが入って無ければ
-            st.error("最低在庫数：チェックを入れるか数量を変更してください")
-        elif select_order_source and order_source:
-            st.error("発注元はどちらかひとつに入力してください")
-        elif not select_order_source and not order_source.strip():
-            st.error("発注元をいずれかに入力してください")
-        else:
-            if select_order_source:
-                order_source = select_order_source
-            new_data = pd.DataFrame([{
-        "資材コード": code,
-        "品名": item,
-        "型式・寸法": model,
-        "在庫数": stock,
-        "最低在庫数": min_stock,
-        "使用会社": company,
-        "形区分": section,
-        "発注日": None,
-        "発注数量":None,
-        "単価（税抜）":unit_price,
-        "発注元":order_source
-    }])#入力した8項目を、スプレッドシートの1行分の表にする
-        # 発注済みはGoogleスプレッドシートへの書き戻し時に
-        # チェックボックスではなくTRUE/FALSE表示になるため現状維持
 
-            data = pd.concat([data, new_data], ignore_index=True) 
-            #concatは「つなげる」というイメージでOK。
-            data = data.sort_values("資材コード").reset_index(drop=True)
-            #資材コード順に並べる
-            save()
-            condition=data["資材コード"]==code
-            st.write("以下のデータを登録しました")
-            st.dataframe(data.loc[condition].drop(columns=["発注日","納入予定日"]),hide_index=True)
+            #登録用チェック機能
+            if submitted:
+                if not code.isdigit() or len(code)!= 8:
+                        st.error("資材コードは8桁の数字で入力してください") 
+                elif code in data["資材コード"].values:
+                    st.error("この資材コードは既に登録されています") 
+                elif not item.strip():
+                    st.error("品名を入力してください")
+                elif min_stock==1 and not confirm_min_stock:#最低在庫数が1でチェックが入って無ければ
+                    st.error("最低在庫数：チェックを入れるか数量を変更してください")
+                elif select_order_source and order_source:
+                    st.error("発注元はどちらかひとつに入力してください")
+                elif not select_order_source and not order_source.strip():
+                    st.error("発注元をいずれかに入力してください")
+                else:
+                    if select_order_source:
+                        order_source = select_order_source
+                    new_data = pd.DataFrame([{
+                "資材コード": code,
+                "品名": item,
+                "型式・寸法": model,
+                "在庫数": stock,
+                "最低在庫数": min_stock,
+                "使用会社": company,
+                "形区分": section,
+                "発注日": None,
+                "発注数量":None,
+                "単価（税抜）":unit_price,
+                "発注元":order_source
+            }])#入力した8項目を、スプレッドシートの1行分の表にする
+                # 発注済みはGoogleスプレッドシートへの書き戻し時に
+                # チェックボックスではなくTRUE/FALSE表示になるため現状維持
+
+                    data = pd.concat([data, new_data], ignore_index=True) 
+                    #concatは「つなげる」というイメージでOK。
+                    data = data.sort_values("資材コード").reset_index(drop=True)
+                    #資材コード順に並べる
+                    save()
+                    condition=data["資材コード"]==code
+                    st.write("以下のデータを登録しました")
+                    st.dataframe(data.loc[condition].drop(columns=["発注日","納入予定日"]),hide_index=True)
+        else:
+            st.warning("商品情報を変更する権限がありません")        
 
     #商品情報更新（検索機能・更新フォーム・更新チェックあり）
     with update_tab:
-        search_button_code("stock_update_search","商品情報更新",data,"update_search_code")
-        if "update_search_code" in st.session_state:
-            with st.form("stock_update", clear_on_submit=True,enter_to_submit=False):#更新用フォーム
-                st.subheader("現在の情報")
-                condition=data["資材コード"]==st.session_state["update_search_code"]
-                st.dataframe(data.loc[condition,["資材コード", "品名", "型式・寸法", "最低在庫数","使用会社","単価（税抜）","発注元"]],hide_index=True)
-                st.subheader("更新情報の入力")
-                st.write("※変更しない項目は空欄（最低在庫数・単価（税抜）は0）のままにしてください")
-                up_item=st.text_input("品名")
-                up_model=st.text_input("型式・寸法")
-                up_min_stock=int(st.number_input("最低在庫数",min_value=0))
-                up_company_name=["","A会社","B会社","その他"]
-                up_company=st.selectbox("使用会社",up_company_name)
-                up_unit_price = st.number_input("単価（税抜)", min_value=0)
-                up_order_source = st.text_input("発注元")
-                submitted_stock_update = st.form_submit_button("更新")
+        if st.session_state["login_role"] == "管理者":
+            search_button_code("stock_update_search","商品情報更新",data,"update_search_code")
+            if "update_search_code" in st.session_state:
+                with st.form("stock_update", clear_on_submit=True,enter_to_submit=False):#更新用フォーム
+                    st.subheader("現在の情報")
+                    condition=data["資材コード"]==st.session_state["update_search_code"]
+                    st.dataframe(data.loc[condition,["資材コード", "品名", "型式・寸法", "最低在庫数","使用会社","単価（税抜）","発注元"]],hide_index=True)
+                    st.subheader("更新情報の入力")
+                    st.write("※変更しない項目は空欄（最低在庫数・単価（税抜）は0）のままにしてください")
+                    up_item=st.text_input("品名")
+                    up_model=st.text_input("型式・寸法")
+                    up_min_stock=int(st.number_input("最低在庫数",min_value=0))
+                    up_company_name=["","A会社","B会社","その他"]
+                    up_company=st.selectbox("使用会社",up_company_name)
+                    up_unit_price = st.number_input("単価（税抜)", min_value=0)
+                    up_order_source = st.text_input("発注元")
+                    submitted_stock_update = st.form_submit_button("更新")
 
-            if submitted_stock_update:#更新チェック
-                update_notes=[]#更新内容表示用
-                if up_item:
-                    stock_update("品名",up_item)
-                    update_notes.append("品名")
-                if up_model:
-                    stock_update("型式・寸法",up_model)
-                    update_notes.append("型式・寸法")
-                if up_min_stock:
-                    stock_update("最低在庫数",up_min_stock)
-                    update_notes.append("最低在庫数")
-                if up_company:
-                    stock_update("使用会社",up_company)
-                    update_notes.append("使用会社")
-                if up_unit_price:
-                    stock_update("単価（税抜）",up_unit_price)
-                    update_notes.append("単価（税抜）")
-                if up_order_source:
-                    stock_update("発注元",up_order_source)
-                    update_notes.append("発注元")
-                if not up_item and not up_model and not up_min_stock and not up_company and not up_order_source and not up_unit_price: 
-                    st.error("いずれかを入力してください")
-                if  update_notes:
-                    save()
-                    st.subheader("今回の更新情報")
-                    for update_note in update_notes:#
-                        st.write(f"◆{update_note}")
-                    st.dataframe(data.loc[condition,[ "資材コード","品名", "型式・寸法", "最低在庫数","使用会社","単価（税抜）","発注元"]],hide_index=True)
+                if submitted_stock_update:#更新チェック
+                    update_notes=[]#更新内容表示用
+                    if up_item:
+                        stock_update("品名",up_item)
+                        update_notes.append("品名")
+                    if up_model:
+                        stock_update("型式・寸法",up_model)
+                        update_notes.append("型式・寸法")
+                    if up_min_stock:
+                        stock_update("最低在庫数",up_min_stock)
+                        update_notes.append("最低在庫数")
+                    if up_company:
+                        stock_update("使用会社",up_company)
+                        update_notes.append("使用会社")
+                    if up_unit_price:
+                        stock_update("単価（税抜）",up_unit_price)
+                        update_notes.append("単価（税抜）")
+                    if up_order_source:
+                        stock_update("発注元",up_order_source)
+                        update_notes.append("発注元")
+                    if not up_item and not up_model and not up_min_stock and not up_company and not up_order_source and not up_unit_price: 
+                        st.error("いずれかを入力してください")
+                    if  update_notes:
+                        save()
+                        st.subheader("今回の更新情報")
+                        for update_note in update_notes:#
+                            st.write(f"◆{update_note}")
+                        st.dataframe(data.loc[condition,[ "資材コード","品名", "型式・寸法", "最低在庫数","使用会社","単価（税抜）","発注元"]],hide_index=True)
+        else:
+            st.warning("商品情報を変更する権限がありません")
 
     #商品削除（検索機能・削除フォーム・削除チェックあり）
     with delete_tab:
-        search_button_code("stock_delete_search","商品削除",data,"delete_search_code")
-        if "delete_search_code" in st.session_state:
-            with st.form("stock_delete", clear_on_submit=True,enter_to_submit=False):#削除用フォーム
-                st.subheader("削除する情報")
-                condition=data["資材コード"]==st.session_state["delete_search_code"]
-                st.dataframe(data.loc[condition],hide_index=True)
-                confirm = st.checkbox("この商品を削除することを確認しました")#チェックボックス
-                submitted_delete = st.form_submit_button("削除")
-            if submitted_delete:
-                if confirm:#チェックが入っていれば
-                    data = data.drop(data.loc[condition].index)#data内のdrop指定されたindexの行を削除
-                    save()
-                    st.success("上記の情報は削除されました")
-                else:
-                    st.warning("確認欄にチェックを入れてください")
+        if st.session_state["login_role"] == "管理者":
+            search_button_code("stock_delete_search","商品削除",data,"delete_search_code")
+            if "delete_search_code" in st.session_state:
+                with st.form("stock_delete", clear_on_submit=True,enter_to_submit=False):#削除用フォーム
+                    st.subheader("削除する情報")
+                    condition=data["資材コード"]==st.session_state["delete_search_code"]
+                    st.dataframe(data.loc[condition],hide_index=True)
+                    confirm = st.checkbox("この商品を削除することを確認しました")#チェックボックス
+                    submitted_delete = st.form_submit_button("削除")
+                if submitted_delete:
+                    if confirm:#チェックが入っていれば
+                        data = data.drop(data.loc[condition].index)#data内のdrop指定されたindexの行を削除
+                        save()
+                        st.success("上記の情報は削除されました")
+                    else:
+                        st.warning("確認欄にチェックを入れてください")
+        else:
+            st.warning("商品情報を変更する権限がありません")
 
     #発注
     with order_tub:
         condition =((data["在庫数"] < data["最低在庫数"]) &
         (data["発注日"].isna()))#isna() は、その値が NaN（欠損値・空欄）かどうかを見る
         if condition.any():#condition(最低在庫数以下の在庫数)の中にTrueが1つでもあるなら
-            search_button_code("order_search","発注",data,"order_search_code")
-            if "order_search_code" in st.session_state:
-                order_condition = (
-                (data["資材コード"] == st.session_state["order_search_code"]) &
-                (data["在庫数"] < data["最低在庫数"]) &
-                (data["発注日"].isna())
-                )
-                if order_condition.any():
-                    with st.form("order_form",clear_on_submit=True,enter_to_submit=False):
-                        st.subheader("現在の情報")
-                        st.dataframe(data.loc[order_condition,["資材コード", "品名", "型式・寸法","在庫数","最低在庫数"]],hide_index=True)
-                        order_date = st.date_input("発注日", value=date.today())
-                        delivery_date = st.date_input("納入予定日 ※未定の場合は空欄のままにしてください", value=None)
-                        order_quantity = st.number_input("発注数量",value=1,min_value=1)
-                        confirm_order_quantity = st.checkbox("発注数量を１個で発注する場合はこちらにチェック")
-                        submitted_order = st.form_submit_button("発注")
-                    if submitted_order:
-                        order_source = data.loc[order_condition, "発注元"].iloc[0]
-                        unit_price = int(data.loc[order_condition, "単価（税抜）"].iloc[0])
-                        if not order_source:
-                            st.error("発注元が登録されていません。商品情報更新から発注元を登録してください")  
-                        elif not order_source in order_source_data["発注元"].values:
-                            st.error("発注元がマスタデータに登録されていません。PCから登録してください")  
-                        elif unit_price == 0:
-                            st.error("単価が登録されていません。商品情報更新から単価を登録してください")
-                        elif not order_date:
-                            st.error("発注日を入力してください")
-                        elif delivery_date and order_date>delivery_date:
-                            st.error("発注日が納入予定日を過ぎています")
-                        elif order_quantity==1 and not confirm_order_quantity:
-                            st.error("発注数：チェックを入れるか数量を変更してください")     
-                        else:
-                            current_stock = data.loc[order_condition, "在庫数"].iloc[0]
-                            min_stock = data.loc[order_condition, "最低在庫数"].iloc[0]
-                            if current_stock + order_quantity < min_stock:
-                                st.warning("※納入後も最低在庫数を下回ります。発注数量を確認してください")
-                            data.loc[order_condition, "発注日"] = str(order_date) #左のままだと文字列ではなくdate 型。
-                            data.loc[order_condition, "発注数量"] = int(order_quantity)
-                            if delivery_date:
-                                data.loc[order_condition, "納入予定日"] = delivery_date
-                            save()
-                            if delivery_date:
-                                save_delivery_date = delivery_date
+            if st.session_state["login_role"] in ["発注担当", "管理者"]:
+                search_button_code("order_search","発注",data,"order_search_code")
+                if "order_search_code" in st.session_state:
+                    order_condition = (
+                    (data["資材コード"] == st.session_state["order_search_code"]) &
+                    (data["在庫数"] < data["最低在庫数"]) &
+                    (data["発注日"].isna())
+                    )
+                    if order_condition.any():
+                        with st.form("order_form",clear_on_submit=True,enter_to_submit=False):
+                            st.subheader("現在の情報")
+                            st.dataframe(data.loc[order_condition,["資材コード", "品名", "型式・寸法","在庫数","最低在庫数"]],hide_index=True)
+                            order_date = st.date_input("発注日", value=date.today())
+                            delivery_date = st.date_input("納入予定日 ※未定の場合は空欄のままにしてください", value=None)
+                            order_quantity = st.number_input("発注数量",value=1,min_value=1)
+                            confirm_order_quantity = st.checkbox("発注数量を１個で発注する場合はこちらにチェック")
+                            submitted_order = st.form_submit_button("発注")
+                        if submitted_order:
+                            order_source = data.loc[order_condition, "発注元"].iloc[0]
+                            unit_price = int(data.loc[order_condition, "単価（税抜）"].iloc[0])
+                            if not order_source:
+                                st.error("発注元が登録されていません。商品情報更新から発注元を登録してください")  
+                            elif not order_source in order_source_data["発注元"].values:
+                                st.error("発注元がマスタデータに登録されていません。PCから登録してください")  
+                            elif unit_price == 0:
+                                st.error("単価が登録されていません。商品情報更新から単価を登録してください")
+                            elif not order_date:
+                                st.error("発注日を入力してください")
+                            elif delivery_date and order_date>delivery_date:
+                                st.error("発注日が納入予定日を過ぎています")
+                            elif order_quantity==1 and not confirm_order_quantity:
+                                st.error("発注数：チェックを入れるか数量を変更してください")     
                             else:
-                                save_delivery_date = "━"
-                            order_save(order_condition,"発注",order_date,save_delivery_date, order_quantity)
-                            st.success("下記の通り、発注されました、発注書をダウンロードしてください")
-                            st.dataframe(data.loc[order_condition,
-                                                    ["資材コード","品名","型式・寸法","発注日","納入予定日","発注数量","単価（税抜）","発注元"]]
-                                                    ,hide_index=True)
-                            st.warning("※発注書を保存するまで、この画面を閉じないでください")
-                            order_excel = order_sheet(order_condition, order_quantity)
-                            st.download_button(
-                                label="発注書をダウンロード",
-                                data=order_excel,
-                                file_name="発注書.xlsx",
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                            )
-                else:
-                    st.error("この商品は現在、発注対象ではありません")       
+                                current_stock = data.loc[order_condition, "在庫数"].iloc[0]
+                                min_stock = data.loc[order_condition, "最低在庫数"].iloc[0]
+                                if current_stock + order_quantity < min_stock:
+                                    st.warning("※納入後も最低在庫数を下回ります。発注数量を確認してください")
+                                data.loc[order_condition, "発注日"] = str(order_date) #左のままだと文字列ではなくdate 型。
+                                data.loc[order_condition, "発注数量"] = int(order_quantity)
+                                if delivery_date:
+                                    data.loc[order_condition, "納入予定日"] = delivery_date
+                                save()
+                                if delivery_date:
+                                    save_delivery_date = delivery_date
+                                else:
+                                    save_delivery_date = "━"
+                                order_save(order_condition,"発注",order_date,save_delivery_date, order_quantity)
+                                st.success("下記の通り、発注されました、発注書をダウンロードしてください")
+                                st.dataframe(data.loc[order_condition,
+                                                        ["資材コード","品名","型式・寸法","発注日","納入予定日","発注数量","単価（税抜）","発注元"]]
+                                                        ,hide_index=True)
+                                st.warning("※発注書を保存するまで、この画面を閉じないでください")
+                                order_excel = order_sheet(order_condition, order_quantity)
+                                st.download_button(
+                                    label="発注書をダウンロード",
+                                    data=order_excel,
+                                    file_name="発注書.xlsx",
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                               )
+                    else:
+                        st.error("この商品は現在、発注対象ではありません") 
+
+            else:
+                st.warning("発注権限がありません")
             st.subheader("⚠️ 発注確認")
             st.markdown(f"<span style='color:red;'>不足している部品が{condition.sum()}個あります、発注してください！</span>",
                 unsafe_allow_html=True
@@ -949,57 +1024,60 @@ else:
     with already_ordered_tub: 
         already_ordered=data["発注日"].notna()#notna() は、その値が 入ってるかどうかを見る   
         if already_ordered.any():#発注済みにTrueな物が一つでもあれば
-            #発注情報更新フォーム(検索あり)
-            search_button_code("order_cancel_change_search","発注情報変更（取消）",data,"cancel_change_search_code")
-            if "cancel_change_search_code" in st.session_state:
-                cancel_change_condition = ((data["資材コード"] == st.session_state["cancel_change_search_code"]) &
-                (data["発注日"].notna()))#資材コードと一致かつ発注日があるもの
-                if cancel_change_condition.any():
-                    with st.form("order_cancel_change_form",clear_on_submit=True,enter_to_submit=False):
-                        st.subheader("現在の情報")
-                        st.dataframe(data.loc[cancel_change_condition].drop(columns=["使用会社","形区分","発注元"]),hide_index=True)
-                        st.subheader("更新情報の入力")
-                        st.write("※更新しない項目は空欄（発注数量は0）のままにしてください")
-                        st.write("※発注取消の場合はすべて空欄のまま【発注取消ボタン】を押してください")
-                        order_date = st.date_input("発注日", value=None)
-                        delivery_date = st.date_input("納入予定日" ,value=None)
-                        order_quantity = st.number_input("発注数量",value=0,min_value=0)
+            if st.session_state["login_role"] in ["発注担当", "管理者"]:
+                #発注情報更新フォーム(検索あり)
+                search_button_code("order_cancel_change_search","発注情報変更（取消）",data,"cancel_change_search_code")
+                if "cancel_change_search_code" in st.session_state:
+                    cancel_change_condition = ((data["資材コード"] == st.session_state["cancel_change_search_code"]) &
+                    (data["発注日"].notna()))#資材コードと一致かつ発注日があるもの
+                    if cancel_change_condition.any():
+                        with st.form("order_cancel_change_form",clear_on_submit=True,enter_to_submit=False):
+                            st.subheader("現在の情報")
+                            st.dataframe(data.loc[cancel_change_condition].drop(columns=["使用会社","形区分","発注元"]),hide_index=True)
+                            st.subheader("更新情報の入力")
+                            st.write("※更新しない項目は空欄（発注数量は0）のままにしてください")
+                            st.write("※発注取消の場合はすべて空欄のまま【発注取消ボタン】を押してください")
+                            order_date = st.date_input("発注日", value=None)
+                            delivery_date = st.date_input("納入予定日" ,value=None)
+                            order_quantity = st.number_input("発注数量",value=0,min_value=0)
 
-                        submitted_order_cancel = st.form_submit_button("発注取消")
-                        submitted_order_change = st.form_submit_button("発注内容変更")
-                        if submitted_order_cancel or submitted_order_change:
-                            changed = False
-                            if submitted_order_cancel:
-                                data.loc[cancel_change_condition, "発注日"] = None
-                                data.loc[cancel_change_condition, "納入予定日"] = None
-                                data.loc[cancel_change_condition, "発注数量"] = None
-                                changed = True
-                                order_save(cancel_change_condition,"発注取消","取消","取消","取消")
-                                st.success("発注を取り消しました")
-                                st.warning("※保存済みの発注書がある場合は、使用しないように発注書を削除してください")
-                                
-                            elif submitted_order_change:
-                                changed=order_change(cancel_change_condition, order_date, delivery_date,order_quantity)
+                            submitted_order_cancel = st.form_submit_button("発注取消")
+                            submitted_order_change = st.form_submit_button("発注内容変更")
+                            if submitted_order_cancel or submitted_order_change:
+                                changed = False
+                                if submitted_order_cancel:
+                                    data.loc[cancel_change_condition, "発注日"] = None
+                                    data.loc[cancel_change_condition, "納入予定日"] = None
+                                    data.loc[cancel_change_condition, "発注数量"] = None
+                                    changed = True
+                                    order_save(cancel_change_condition,"発注取消","取消","取消","取消")
+                                    st.success("発注を取り消しました")
+                                    st.warning("※保存済みの発注書がある場合は、使用しないように発注書を削除してください")
+                                    
+                                elif submitted_order_change:
+                                    changed=order_change(cancel_change_condition, order_date, delivery_date,order_quantity)
+                                    if changed:
+                                        if order_date==None:
+                                            save_order_date="━"
+                                        else:
+                                            save_order_date=order_date
+                                        if delivery_date==None:
+                                            save_delivery_date="━"
+                                        else:
+                                            save_delivery_date=delivery_date
+                                        if order_quantity==0:
+                                            save_order_quantity="━"
+                                        else:
+                                            save_order_quantity=order_quantity
+                                        order_save(cancel_change_condition, "発注内容変更",save_order_date,save_delivery_date,save_order_quantity)
+                                        st.warning("※保存済みの発注書がある場合は、発注書の内容も更新してください")
                                 if changed:
-                                    if order_date==None:
-                                        save_order_date="━"
-                                    else:
-                                        save_order_date=order_date
-                                    if delivery_date==None:
-                                        save_delivery_date="━"
-                                    else:
-                                        save_delivery_date=delivery_date
-                                    if order_quantity==0:
-                                        save_order_quantity="━"
-                                    else:
-                                        save_order_quantity=order_quantity
-                                    order_save(cancel_change_condition, "発注内容変更",save_order_date,save_delivery_date,save_order_quantity)
-                                    st.warning("※保存済みの発注書がある場合は、発注書の内容も更新してください")
-                            if changed:
-                                save()
-                                st.dataframe(data.loc[cancel_change_condition].drop(columns=["使用会社","形区分","発注元"]),hide_index=True)
-                else:
-                    st.error("この商品は発注されていません")
+                                    save()
+                                    st.dataframe(data.loc[cancel_change_condition].drop(columns=["使用会社","形区分","発注元"]),hide_index=True)
+                    else:
+                        st.error("この商品は発注されていません")
+            else:
+                st.warning("発注権限がありません")
             st.markdown(
             "<h3><span style='color:green;'>★</span>&nbsp;&nbsp;発注済み商品</h3>",
             unsafe_allow_html=True)
