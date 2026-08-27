@@ -741,7 +741,8 @@ else:
     
     #入庫用フォーム（タブ）
     with tab1:
-        if inventory_data["棚卸モード"].iloc[0] == "ON":
+        if (inventory_data["棚卸モード"].iloc[0] 
+                        == "ON" and st.session_state["login_role"] != "管理者"):
             st.warning("現在棚卸中のため、入出庫できません")
         else:
             code,item,amount,submitted_stock=stock_in_out_form("stock_in_form","入庫","入庫数")
@@ -752,7 +753,8 @@ else:
 
     #出庫用フォーム（タブ）
     with tab2:
-        if inventory_data["棚卸モード"].iloc[0] == "ON":
+        if (inventory_data["棚卸モード"].iloc[0] 
+            == "ON" and st.session_state["login_role"] != "管理者"):
             st.warning("現在棚卸中のため、入出庫できません")
         else:
             code,item,amount,submitted_stock=stock_in_out_form("stock_out_form","出庫","出庫数") 
