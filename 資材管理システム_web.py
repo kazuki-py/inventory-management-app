@@ -743,7 +743,13 @@ else:
     with tab1:
         if (inventory_data["棚卸モード"].iloc[0] 
                         == "ON" and st.session_state["login_role"] != "管理者"):
-            st.warning("現在棚卸中のため、入出庫できません")
+            manager = next(
+                        (user for user, role in st.secrets["roles"].items()
+                        if role == "管理者"),
+                        "管理者")#管理者の一番最初を持ってくる(forでも作れる)
+
+            st.warning(f"現在棚卸中のため、入出庫できません  \n"
+                    f"管理者：{manager}までご連絡ください") 
         else:
             code,item,amount,submitted_stock=stock_in_out_form("stock_in_form","入庫","入庫数")
 
@@ -755,7 +761,13 @@ else:
     with tab2:
         if (inventory_data["棚卸モード"].iloc[0] 
             == "ON" and st.session_state["login_role"] != "管理者"):
-            st.warning("現在棚卸中のため、入出庫できません")
+            manager = next(
+                        (user for user, role in st.secrets["roles"].items()
+                        if role == "管理者"),
+                        "管理者")
+
+            st.warning(f"現在棚卸中のため、入出庫できません  \n"
+                    f"管理者：{manager}までご連絡ください") 
         else:
             code,item,amount,submitted_stock=stock_in_out_form("stock_out_form","出庫","出庫数") 
 
@@ -1105,41 +1117,51 @@ else:
 
     #入出庫取消
     with tab6:
-        search_button_code("stock_cancel_search","入出庫取消",history_data,"cancel_search_code")
-        # ① 資材コードで履歴を絞る
-        if "cancel_search_code" in st.session_state:#履歴から選ぶ
-            condition = (
-        (history_data["資材コード"] == st.session_state["cancel_search_code"]) &
-        (history_data["区分"].isin(["入庫", "出庫"])) &#ここ今は不要、今後「取消状況」の状態次第で使えるかも
-        (history_data["取消状況"]=="無"))#history_data["区分"]の中に"入庫", "出庫"が入ってるか
-            cancel_history = history_data.loc[condition]
-            # ② indexを選択肢にする
-            if cancel_history.empty:#.empty = 「この表、空？」
-                st.error("取消可能な入出庫履歴はありません")
-            else:
-                selected_index = st.selectbox(
-                    "取り消す履歴を選択してください",
-                    cancel_history.index,
-                    # ③ ただし画面にはindexからの履歴内容を表示
-                    format_func=lambda i: (
-                        f'{cancel_history.loc[i, "日時"]} '
-                        f'{cancel_history.loc[i, "区分"]} '
-                        f'{int(cancel_history.loc[i, "数量"])}個'
-                        f'{cancel_history.loc[i, "作業者"]}'
-                    )
-                )
-                # ④ 選んだindexから元の履歴を取得
-                cancel_data = history_data.loc[selected_index]
-                #history_dataの中の選んだインデックス値に対応する行を代入
-                cancel_code = cancel_data["資材コード"]
-                cancel_type = cancel_data["区分"]
-                cancel_amount = int(cancel_data["数量"])
-                #それぞれ、cancel_dataの中から各ヘッダーの値を代入
-                cancel_condition = data["資材コード"] == cancel_code
-                #dataの資材コードとhistory_dataの資材コード（cancel_code）一致した行
-                cancel_type_check(cancel_type)
-                
-                                            
+        if (inventory_data["棚卸モード"].iloc[0] 
+                        == "ON" and st.session_state["login_role"] != "管理者"):
+            manager = next(
+                        (user for user, role in st.secrets["roles"].items()
+                        if role == "管理者"),
+                        "管理者")
 
+            st.warning(f"現在棚卸中のため、入出庫できません  \n"
+                       f"管理者：{manager}までご連絡ください") 
+        else:
+            search_button_code("stock_cancel_search","入出庫取消",history_data,"cancel_search_code")
+            # ① 資材コードで履歴を絞る
+            if "cancel_search_code" in st.session_state:#履歴から選ぶ
+                condition = (
+            (history_data["資材コード"] == st.session_state["cancel_search_code"]) &
+            (history_data["区分"].isin(["入庫", "出庫"])) &#ここ今は不要、今後「取消状況」の状態次第で使えるかも
+            (history_data["取消状況"]=="無"))#history_data["区分"]の中に"入庫", "出庫"が入ってるか
+                cancel_history = history_data.loc[condition]
+                # ② indexを選択肢にする
+                if cancel_history.empty:#.empty = 「この表、空？」
+                    st.error("取消可能な入出庫履歴はありません")
+                else:
+                    selected_index = st.selectbox(
+                        "取り消す履歴を選択してください",
+                        cancel_history.index,
+                        # ③ ただし画面にはindexからの履歴内容を表示
+                        format_func=lambda i: (
+                            f'{cancel_history.loc[i, "日時"]} '
+                            f'{cancel_history.loc[i, "区分"]} '
+                            f'{int(cancel_history.loc[i, "数量"])}個'
+                            f'{cancel_history.loc[i, "作業者"]}'
+                        )
+                    )
+                    # ④ 選んだindexから元の履歴を取得
+                    cancel_data = history_data.loc[selected_index]
+                    #history_dataの中の選んだインデックス値に対応する行を代入
+                    cancel_code = cancel_data["資材コード"]
+                    cancel_type = cancel_data["区分"]
+                    cancel_amount = int(cancel_data["数量"])
+                    #それぞれ、cancel_dataの中から各ヘッダーの値を代入
+                    cancel_condition = data["資材コード"] == cancel_code
+                    #dataの資材コードとhistory_dataの資材コード（cancel_code）一致した行
+                    cancel_type_check(cancel_type)
                     
+                                                
+
+                        
 
