@@ -130,6 +130,34 @@ def stock_fluc_save(stock_pattern,stock_typ):#入出庫数記録用関数
         condition=data["品名"]== item
     if stock_typ=="入庫":
         data.loc[condition,"在庫数"]+=amount
+        order_date_data = data.loc[condition, "発注日"].iloc[0]#発注日を取得
+        if pd.notna(order_date_data) and order_date_data != "修正中":#発注日に修正中以外のデータがあるなら
+            order_quantity_data=data.loc[condition,"発注数量"].iloc[0]#発注数量データ
+            data.loc[condition,"発注後未入庫数量"]-=amount#発注後未入庫数量-入荷数量
+            order_remaining=int(data.loc[condition,"発注後未入庫数量"].iloc[0])
+            if order_quantity_data==amount and  order_remaining==0:
+                data.loc[condition,"納入状況"]="済"
+                st.success("発注数量と一致しています")
+                data.loc[condition,"発注日"]=None
+                data.loc[condition,"納入予定日"]=None
+            elif 0<order_remaining<order_quantity_data:
+                data.loc[condition,"納入状況"]="分納"
+                st.success(f"分納になっています：残数量{order_remaining}個")
+            elif order_remaining==0:
+                data.loc[condition,"納入状況"]="済"
+                data.loc[condition,"発注日"]=None
+                data.loc[condition,"納入予定日"]=None
+                st.success("分納がすべて完了しました")
+            elif order_remaining<0:
+                data.loc[condition,"納入状況"]="要確認"
+                data.loc[condition,"発注日"]="修正中"
+                data.loc[condition,"納入予定日"]="修正中"
+                st.warning("入庫数が発注数を超えています、資材担当に連絡してください")
+        else:
+            st.warning("発注情報が登録されていない商品です。  \n"
+                        "資材担当に確認してください")
+            
+
     elif stock_typ=="出庫":
         data.loc[condition,"在庫数"]-=amount
     item_name=data.loc[condition,"品名"].iloc[0]
@@ -516,6 +544,35 @@ def order_sheet(order_condition, order_quantity):
 
     excel_data.seek(0)
     return excel_data
+#発注情報変更パターン別変換
+def data_loc_in(cancel_change_condition,order_date=None,delivery_date=None,order_quantity=None,after_remaining_quantity=None):
+    if order_date is not None:
+        data.loc[cancel_change_condition, "発注日"] = str(order_date)
+    if delivery_date is not None:
+        data.loc[cancel_change_condition, "納入予定日"] = str(delivery_date)
+    if order_quantity  is not None:
+        data.loc[cancel_change_condition, "発注数量"] = int(order_quantity)
+    if after_remaining_quantity is not None:#０の場合は入れる
+        data.loc[cancel_change_condition,"発注後未入庫数量"] = after_remaining_quantity
+        if data.loc[cancel_change_condition,"発注後未入庫数量"].iloc[0]==0:
+            data.loc[cancel_change_condition, "発注日"]=None
+            data.loc[cancel_change_condition, "納入予定日"]=None
+            data.loc[cancel_change_condition,"納入状況"]="済"
+            st.success("発注数量の変更により、納入済み数量と一致したため納入完了となりました")
+
+#発注数変更後、発注後未入庫数量取得用関数（発注内容変更関数で使用）
+def get_after_remaining_quantity(cancel_change_condition,order_quantity):
+    before_order_quantity = data.loc[cancel_change_condition, "発注数量"].iloc[0]
+    #発注数量（変更前）を取得
+    before_remaining_quantity = data.loc[cancel_change_condition, "発注後未入庫数量"].iloc[0]
+    #発注後未入庫数量（変更前）を取得
+    difference_order_quantity = int(order_quantity) - before_order_quantity
+    #発注数量の差を取得
+    after_remaining_quantity = (before_remaining_quantity + difference_order_quantity)
+    #発注後未入庫数量（変更前）と発注数量の差から発注後未入庫数量（変更後）の値を取得
+    received_quantity = int(before_order_quantity - before_remaining_quantity)
+    #入庫済み数量＝発注数量（変更前）-発注後未入庫数量（変更前)
+    return after_remaining_quantity,received_quantity
 
 #発注内容変更関数
 def order_change(cancel_change_condition, order_date, delivery_date,order_quantity):
@@ -524,14 +581,20 @@ def order_change(cancel_change_condition, order_date, delivery_date,order_quanti
         if order_date>delivery_date:
             st.error("発注日が納入予定日を過ぎています")
         elif order_quantity:#発注数量もあればすべて変更
-            data.loc[cancel_change_condition, "発注日"] = str(order_date)
-            data.loc[cancel_change_condition, "納入予定日"] = str(delivery_date)
-            data.loc[cancel_change_condition, "発注数量"] = int(order_quantity)
-            changed = True
-            st.success("下記の通り、発注日・納入予定日・発注数量が変更されました")
+            after_remaining_quantity,received_quantity=get_after_remaining_quantity(
+                cancel_change_condition,
+                order_quantity)
+
+            if after_remaining_quantity<0:#発注後未入庫数量（変更後）が負の値になった場合、変更不可
+                st.error(f"すでに{received_quantity}個入庫済みのため、"
+                            f"発注数量を{received_quantity}個未満には変更できません")
+            else:
+                data_loc_in(cancel_change_condition,order_date,delivery_date,order_quantity,after_remaining_quantity)
+                #実際に発注後未入庫数量を変更
+                changed = True
+                st.success("下記の通り、発注日・納入予定日・発注数量が変更されました")
         else:#発注日・納入予定日を変更
-            data.loc[cancel_change_condition, "発注日"] = str(order_date)
-            data.loc[cancel_change_condition, "納入予定日"] = str(delivery_date)
+            data_loc_in(cancel_change_condition,order_date,delivery_date)
             changed = True
             st.success("下記の通り、発注日・納入予定日が変更されました")
     elif order_date:#発注日があれば
@@ -541,22 +604,35 @@ def order_change(cancel_change_condition, order_date, delivery_date,order_quanti
             if order_date>code_delivery_date:
                 st.error("発注日が納入予定日を過ぎています")
             elif order_quantity:#発注数量もあれば発注日・発注数量変更
-                data.loc[cancel_change_condition, "発注日"] = str(order_date)
-                data.loc[cancel_change_condition, "発注数量"] = int(order_quantity)
-                changed = True
-                st.success("下記の通り、発注日・発注数量が変更されました")
+                after_remaining_quantity,received_quantity=get_after_remaining_quantity(
+                                cancel_change_condition,
+                                order_quantity)
+                if after_remaining_quantity<0:
+                    st.error(f"すでに{received_quantity}個入庫済みのため、"
+                                f"発注数量を{received_quantity}個未満には変更できません")
+                else:
+                    data_loc_in(cancel_change_condition,order_date,order_quantity=order_quantity,after_remaining_quantity=after_remaining_quantity)
+                    changed = True
+                    st.success("下記の通り、発注日・発注数量が変更されました")
+
             else:#発注日のみ
-                data.loc[cancel_change_condition, "発注日"] = str(order_date)
+                data_loc_in(cancel_change_condition,order_date)
                 changed = True
                 st.success("下記の通り、発注日が変更されました")
         else:#納入予定日が事前に入ってないなら
             if order_quantity:#発注数量もあれば発注日・発注数量変更
-                data.loc[cancel_change_condition, "発注日"] = str(order_date)
-                data.loc[cancel_change_condition, "発注数量"] = int(order_quantity)
-                changed = True
-                st.success("下記の通り、発注日・発注数量が変更されました")
+                after_remaining_quantity,received_quantity=get_after_remaining_quantity(
+                                cancel_change_condition,
+                                order_quantity)
+                if after_remaining_quantity<0:
+                    st.error(f"すでに{received_quantity}個入庫済みのため、"
+                                f"発注数量を{received_quantity}個未満には変更できません")
+                else:
+                    data_loc_in(cancel_change_condition,order_date,order_quantity=order_quantity,after_remaining_quantity=after_remaining_quantity)
+                    changed = True
+                    st.success("下記の通り、発注日・発注数量が変更されました")
             else:
-                data.loc[cancel_change_condition, "発注日"] = str(order_date)
+                data_loc_in(cancel_change_condition,order_date)
                 changed = True
                 st.success("下記の通り、発注日が変更されました")
     elif delivery_date:#納入予定日があれば
@@ -566,20 +642,33 @@ def order_change(cancel_change_condition, order_date, delivery_date,order_quanti
             if delivery_date<code_order_date:
                 st.error("納入予定日は発注日より後日にしてください")
             elif order_quantity:#発注数量もあれば納入予定日・発注数量変更
-                data.loc[cancel_change_condition, "納入予定日"] = str(delivery_date)
-                data.loc[cancel_change_condition, "発注数量"] = int(order_quantity)
-                changed = True
-                st.success("下記の通り、納入予定日・発注数量が変更されました")
+                after_remaining_quantity,received_quantity=get_after_remaining_quantity(
+                                cancel_change_condition,
+                                order_quantity)
+                if after_remaining_quantity<0:
+                    st.error(f"すでに{received_quantity}個入庫済みのため、"
+                                f"発注数量を{received_quantity}個未満には変更できません")
+                else:
+                    data_loc_in(cancel_change_condition,delivery_date=delivery_date,order_quantity=order_quantity,after_remaining_quantity=after_remaining_quantity)
+                    changed = True
+                    st.success("下記の通り、納入予定日・発注数量が変更されました")
             else:#納入予定日を変更
-                data.loc[cancel_change_condition, "納入予定日"] = str(delivery_date)
+                data_loc_in(cancel_change_condition,delivery_date=delivery_date)
                 changed = True
                 st.success("下記の通り、納入予定日が変更されました")
         else:#基本的は発注日はあるはずだがファイルが壊れた時などの保険
             st.error("発注日が登録されていません")
     elif order_quantity:#発注数量だけ変更
-        data.loc[cancel_change_condition, "発注数量"] = int(order_quantity)
-        changed = True
-        st.success("下記の通り、発注数量が変更されました")
+        after_remaining_quantity,received_quantity=get_after_remaining_quantity(
+                        cancel_change_condition,
+                        order_quantity)
+        if after_remaining_quantity<0:
+            st.error(f"すでに{received_quantity}個入庫済みのため、"
+                        f"発注数量を{received_quantity}個未満には変更できません")
+        else:
+            data_loc_in(cancel_change_condition,order_quantity=order_quantity,after_remaining_quantity=after_remaining_quantity)
+            changed = True
+            st.success("下記の通り、発注数量が変更されました")
     else:
         st.error("いずれかを入力してください")
     return changed
@@ -874,6 +963,8 @@ else:
                 "使用会社": company,
                 "形区分": section,
                 "発注日": None,
+                "発注後未入庫数量":0,
+                "納入状況":"未",
                 "発注数量":None,
                 "単価（税抜）":unit_price,
                 "発注元":order_source
@@ -900,17 +991,22 @@ else:
                 with st.form("stock_update", clear_on_submit=True,enter_to_submit=False):#更新用フォーム
                     st.subheader("現在の情報")
                     condition=data["資材コード"]==st.session_state["update_search_code"]
-                    st.dataframe(data.loc[condition,["資材コード", "品名", "型式・寸法", "最低在庫数","使用会社","単価（税抜）","発注元"]],hide_index=True)
+                    st.dataframe(data.loc[condition,["資材コード", "品名", "型式・寸法", "最低在庫数","使用会社","形区分","単価（税抜）","発注元"]],hide_index=True)
                     st.subheader("更新情報の入力")
                     st.write("※変更しない項目は空欄（最低在庫数・単価（税抜）は0）のままにしてください")
-                    up_item=st.text_input("品名")
-                    up_model=st.text_input("型式・寸法")
-                    up_min_stock=int(st.number_input("最低在庫数",min_value=0))
-                    up_company_name=["","A会社","B会社","その他"]
-                    up_company=st.selectbox("使用会社",up_company_name)
-                    up_unit_price = st.number_input("単価（税抜)", min_value=0)
-                    up_order_source = st.text_input("発注元")
-                    submitted_stock_update = st.form_submit_button("更新")
+                    left,right=st.columns(2)
+                    with left:
+                        up_item=st.text_input("品名")
+                        up_model=st.text_input("型式・寸法")
+                        up_min_stock=int(st.number_input("最低在庫数",min_value=0))
+                        up_company_name=["","A会社","B会社","その他"]
+                        submitted_stock_update = st.form_submit_button("更新")
+                    with right:
+                        up_company=st.selectbox("使用会社",up_company_name)
+                        up_section_name =["","A：製造","B：品管","C：事務所","D：物流"]
+                        up_section=st.selectbox("形区分を選択してください",up_section_name)
+                        up_unit_price = st.number_input("単価（税抜)", min_value=0)
+                        up_order_source = st.text_input("発注元")
 
                 if submitted_stock_update:#更新チェック
                     update_notes=[]#更新内容表示用
@@ -926,20 +1022,23 @@ else:
                     if up_company:
                         stock_update("使用会社",up_company)
                         update_notes.append("使用会社")
+                    if up_section:
+                        stock_update("形区分",up_section)
+                        update_notes.append("形区分")
                     if up_unit_price:
                         stock_update("単価（税抜）",up_unit_price)
                         update_notes.append("単価（税抜）")
                     if up_order_source:
                         stock_update("発注元",up_order_source)
                         update_notes.append("発注元")
-                    if not up_item and not up_model and not up_min_stock and not up_company and not up_order_source and not up_unit_price: 
+                    if not up_item and not up_model and not up_min_stock and not up_company and not up_section and not up_order_source and not up_unit_price: 
                         st.error("いずれかを入力してください")
                     if  update_notes:
                         save()
                         st.subheader("今回の更新情報")
                         for update_note in update_notes:#
                             st.write(f"◆{update_note}")
-                        st.dataframe(data.loc[condition,[ "資材コード","品名", "型式・寸法", "最低在庫数","使用会社","単価（税抜）","発注元"]],hide_index=True)
+                        st.dataframe(data.loc[condition,[ "資材コード","品名", "型式・寸法", "最低在庫数","使用会社","形区分","単価（税抜）","発注元"]],hide_index=True)
         else:
             st.warning("商品情報を変更する権限がありません")
 
@@ -985,6 +1084,9 @@ else:
                             delivery_date = st.date_input("納入予定日 ※未定の場合は空欄のままにしてください", value=None)
                             order_quantity = st.number_input("発注数量",value=1,min_value=1)
                             confirm_order_quantity = st.checkbox("発注数量を１個で発注する場合はこちらにチェック")
+                            if pd.notna(data.loc[order_condition,"発注数量"].iloc[0]):
+                                last_order_quantity=int(data.loc[order_condition,"発注数量"].iloc[0])
+                                st.write(f"前回の発注数量：{last_order_quantity}個")
                             submitted_order = st.form_submit_button("発注")
                         if submitted_order:
                             order_source = data.loc[order_condition, "発注元"].iloc[0]
@@ -1008,6 +1110,8 @@ else:
                                     st.warning("※納入後も最低在庫数を下回ります。発注数量を確認してください")
                                 data.loc[order_condition, "発注日"] = str(order_date) #左のままだと文字列ではなくdate 型。
                                 data.loc[order_condition, "発注数量"] = int(order_quantity)
+                                data.loc[order_condition, "発注後未入庫数量"] = int(order_quantity)#発注数量と同じ
+                                data.loc[order_condition, "納入状況"] = "未"#未納入の状態にする
                                 if delivery_date:
                                     data.loc[order_condition, "納入予定日"] = delivery_date
                                 save()
@@ -1057,7 +1161,7 @@ else:
                     if cancel_change_condition.any():
                         with st.form("order_cancel_change_form",clear_on_submit=True,enter_to_submit=False):
                             st.subheader("現在の情報")
-                            st.dataframe(data.loc[cancel_change_condition].drop(columns=["使用会社","形区分","発注元"]),hide_index=True)
+                            st.dataframe(data.loc[cancel_change_condition].drop(columns=["使用会社","形区分","発注後未入庫数量","納入状況","発注元"]),hide_index=True)
                             st.subheader("更新情報の入力")
                             st.write("※更新しない項目は空欄（発注数量は0）のままにしてください")
                             st.write("※発注取消の場合はすべて空欄のまま【発注取消ボタン】を押してください")
@@ -1070,13 +1174,17 @@ else:
                             if submitted_order_cancel or submitted_order_change:
                                 changed = False
                                 if submitted_order_cancel:
-                                    data.loc[cancel_change_condition, "発注日"] = None
-                                    data.loc[cancel_change_condition, "納入予定日"] = None
-                                    data.loc[cancel_change_condition, "発注数量"] = None
-                                    changed = True
-                                    order_save(cancel_change_condition,"発注取消","取消","取消","取消")
-                                    st.success("発注を取り消しました")
-                                    st.warning("※保存済みの発注書がある場合は、使用しないように発注書を削除してください")
+                                    if order_date or delivery_date or order_quantity:
+                                        st.error("発注取消の場合は各項目を空欄にしてください")
+                                    else:
+                                        data.loc[cancel_change_condition, "発注日"] = None
+                                        data.loc[cancel_change_condition, "納入予定日"] = None
+                                        data.loc[cancel_change_condition, "発注数量"] = None
+                                        data.loc[cancel_change_condition, "発注後未入庫数量"] = 0
+                                        changed = True
+                                        order_save(cancel_change_condition,"発注取消","取消","取消","取消")
+                                        st.success("発注を取り消しました")
+                                        st.warning("※保存済みの発注書がある場合は、使用しないように発注書を削除してください")
                                     
                                 elif submitted_order_change:
                                     changed=order_change(cancel_change_condition, order_date, delivery_date,order_quantity)
@@ -1096,6 +1204,11 @@ else:
                                         order_save(cancel_change_condition, "発注内容変更",save_order_date,save_delivery_date,save_order_quantity)
                                         st.warning("※保存済みの発注書がある場合は、発注書の内容も更新してください")
                                 if changed:
+                                    current_stock = data.loc[cancel_change_condition, "在庫数"].iloc[0]
+                                    min_stock = data.loc[cancel_change_condition, "最低在庫数"].iloc[0]
+                                    if order_quantity:
+                                        if current_stock + order_quantity< min_stock:
+                                            st.warning("※納入後も最低在庫数を下回ります。発注数量を確認してください")
                                     save()
                                     st.dataframe(data.loc[cancel_change_condition].drop(columns=["使用会社","形区分","発注元"]),hide_index=True)
                     else:
