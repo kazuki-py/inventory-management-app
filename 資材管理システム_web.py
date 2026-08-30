@@ -80,7 +80,7 @@ def stock_in_out_form(form_name,header_name,amount_name):#入出庫フォーム�
         st.write("資材コードもしくは品名を入力してください")
         code=st.text_input("資材コード")
         item=st.text_input("品名")
-        amount=st.number_input(amount_name,min_value=1)
+        amount=st.number_input(amount_name,min_value=0)
         submitted_stock = st.form_submit_button(header_name) 
         return  code,item,amount,submitted_stock
 
@@ -91,6 +91,8 @@ def stock_in_out_check(stock_typ):#入出庫チェック用関数（記録用関
             st.error("資材コードは8桁の数字で入力してください") 
         elif not code in data["資材コード"].values:
             st.error("この資材コードは登録されていません") 
+        elif not amount:
+            st.error(f"{stock_typ}数は1以上で入力してください")
         else:
             if stock_typ=="入庫":
                 stock_fluc_save("資材コード","入庫")
@@ -109,6 +111,8 @@ def stock_in_out_check(stock_typ):#入出庫チェック用関数（記録用関
             st.error("同じ名前が複数あるため資材コードを入力してください")
             st.dataframe(data.loc[condition,["資材コード","品名"]],hide_index=True)
             #「data.loc で取り出した表を、indexだけ隠して表示する」
+        elif not amount:
+            st.error(f"{stock_typ}数は1以上で入力してください")
         else:
             code_number = data.loc[condition, "資材コード"].iloc[0]#品名に対する資材コード
             if stock_typ=="入庫":
@@ -544,6 +548,7 @@ def order_sheet(order_condition, order_quantity):
 
     excel_data.seek(0)
     return excel_data
+
 #発注情報変更パターン別変換
 def data_loc_in(cancel_change_condition,order_date=None,delivery_date=None,order_quantity=None,after_remaining_quantity=None):
     if order_date is not None:
@@ -673,8 +678,25 @@ def order_change(cancel_change_condition, order_date, delivery_date,order_quanti
         st.error("いずれかを入力してください")
     return changed
 
+#指定した列から、━などを除いた最新値を取得する関数（発注日・納入予定日）（入出庫取消用関数に使用）
+def get_latest_order_value(cancel_code, column_name):
+    condition = (
+        (order_data["資材コード"] == cancel_code)
+        & order_data[column_name].notna()
+        & ~order_data[column_name].isin(["━", "取消", ""])
+    )#～結果を反対にする
+
+    if condition.any():
+        return order_data.loc[
+            condition,
+            column_name
+        ].iloc[-1]
+
+    return None
+    #一致したデータがなければNoneを返す
+
 #入出庫取消用関数
-def cancel_type_check(cancel_type):
+def cancel_type_check(cancel_type,cancel_condition,cancel_amount,cancel_code):
     with st.form("stock_cancel", clear_on_submit=True,enter_to_submit=False):
         st.markdown(f"<span style='color:red;'>上記の情報を取り消します!<br>ご確認の上、取消ボタンを押してください</span>",
                     unsafe_allow_html=True)
@@ -685,6 +707,47 @@ def cancel_type_check(cancel_type):
             if data.loc[cancel_condition, "在庫数"].iloc[0]<cancel_amount:
                 st.error("在庫数が不足のため取消できません")
             else:
+                order_quantity=data.loc[cancel_condition, "発注数量"].iloc[0]
+                if pd.notna(order_quantity):#発注数量があれば（発注処理がないものは対象外）
+                    before_remaining_quantity=data.loc[cancel_condition, "発注後未入庫数量"].iloc[0]
+                    before_delivery_status=data.loc[cancel_condition, "納入状況"].iloc[0]
+                    after_remaining_quantity = (
+                    before_remaining_quantity + cancel_amount)# 済・分納の両方で使用するため、分岐前に計算
+                    # 念のため不正な数量を防ぐ
+                    if after_remaining_quantity > order_quantity:
+                        st.error("取消後の未入庫数量が発注数量を超えます")
+                        return
+                    if before_delivery_status=="済":#納入状況(変更前)が済だったら
+                        order_date = get_latest_order_value(cancel_code,"発注日")
+                        
+                        delivery_date = get_latest_order_value(cancel_code,"納入予定日")
+
+                        if order_date is None:
+                            st.error("復元できる発注日が見つかりません")
+                            return#発注日がなければ止める
+                        
+                        if order_quantity==cancel_amount:#発注数量と取消数量が同じだったら（済→未）
+                            data.loc[cancel_condition, "納入状況"]="未"
+                        else:#取消数量が発注数量より少なかったら（済→分納）
+                            data.loc[cancel_condition, "納入状況"]="分納"
+                        data.loc[cancel_condition, "発注後未入庫数量"]=after_remaining_quantity
+
+                        data.loc[cancel_condition,"発注日"] = order_date
+                        data.loc[cancel_condition,"納入予定日"] = delivery_date
+                    elif before_delivery_status=="分納":#納入状況(変更前)が分納だったら
+                        if after_remaining_quantity==order_quantity:
+                            # 分納分をすべて取り消す：分納 → 未
+                            data.loc[cancel_condition, "納入状況"]="未"
+                        else:#分かりやすくするために入れる
+                            # 一部の入庫は残る：分納のまま
+                            data.loc[cancel_condition,"納入状況"] = "分納"
+                        data.loc[cancel_condition, "発注後未入庫数量"]=after_remaining_quantity
+                    elif before_delivery_status == "要確認":
+                        st.error(
+                            "納入状況が「要確認」のため、自動で取消できません。"
+                            "発注情報を確認・修正してから再度実行してください"
+                        )
+                        return
                 data.loc[cancel_condition, "在庫数"] -= cancel_amount
                 canceled = True
         elif cancel_type == "出庫":
@@ -1272,7 +1335,7 @@ else:
                     #それぞれ、cancel_dataの中から各ヘッダーの値を代入
                     cancel_condition = data["資材コード"] == cancel_code
                     #dataの資材コードとhistory_dataの資材コード（cancel_code）一致した行
-                    cancel_type_check(cancel_type)
+                    cancel_type_check(cancel_type,cancel_condition,cancel_amount,cancel_code)
                     
                                                 
 
