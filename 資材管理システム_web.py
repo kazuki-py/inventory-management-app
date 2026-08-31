@@ -13,6 +13,9 @@ from io import BytesIO
 SHEET_URL = st.secrets["connections"]["gsheets"]["spreadsheet"]#URLを隠す[]の所から持ってくる
 from zoneinfo import ZoneInfo#時間（場所）関係
 import bcrypt#パスワード関係
+from difflib import get_close_matches
+#difflibは、文字列同士を比較するためにPythonへ最初から用意されている機能
+#get_close_matchesは、登録されている文字列の中から、入力した文字列に近いものを探す機能
 #ここから関数
 
     
@@ -105,8 +108,56 @@ def stock_in_out_check(stock_typ):#入出庫チェック用関数（記録用関
                 
     elif item:
         condition=data["品名"]== item
-        if not item in data["品名"].values:
+        if not condition.any():
             st.error("この品名は登録されていません") 
+
+            # 部分一致する品名を取得
+            #dict.fromkeys(partial_items + similar_items):
+            partial_items = (data.loc[data["品名"].astype(str).str.contains(item, na=False,regex=False
+                            ),"品名"].dropna().astype(str).unique().tolist())
+            #品名列のデータを、すべて文字列型へ変換
+            #.str.contains()は、完全一致ではなく「その文字がどこかに含まれているか」を確認する機能
+            #na=False:品名が空欄のデータをFalse これがないと、空欄デ
+            # #ータが含まれている場合に判定でエラーになる可能性がある
+            #最終リスト化
+
+            # 類似検索するための品名一覧
+            item_list = data["品名"].dropna().astype(str).unique().tolist()
+            #在庫データから「品名」列だけを取り出す　空欄になっているデータを取り除く
+            #すべての品名を文字列型へ変換　重複している品名を1つにまとめる
+            #取り出した品名をPythonのリスト化 ["六角ボルト", "ステンレスボルト", "平ワッシャー"]
+
+            # 文字の並びが似ている品名を取得 item,item_list
+            similar_items = get_close_matches(item,item_list,n=10,cutoff=0.6)
+            #入力された品名と似ている品名を検索して、結果をsimilar_itemsへ入れる
+            #n:似た品名の最大取得件数（1件しかなければ、1件だけになる）　
+            #cutoff:どの程度似ていれば候補に含めるかを指定
+            #1.0：完全に一致するものだけ 0.6：ある程度似ているもの 
+            #0.4：少し広めに候補を探す 0.0：ほとんど関係のないものも候補になりやすい
+            
+
+            # 部分一致と類似検索の結果をまとめて重複を削除
+            candidate_items = list(
+            dict.fromkeys(partial_items + similar_items))
+            #dict.fromkeys(partial_items + similar_items):同じ品名の重複を取り除く
+            #入力された品名を正規表現などの特殊な命令として扱わず、そのままの文字として検索する設定
+            #品名に+や(などが含まれても、安全に部分一致検索しやすくなる
+
+            
+            if candidate_items:
+                st.warning("以下の品名ではありませんか？")
+
+                candidate_condition = data["品名"].isin(similar_items)
+                #在庫データの品名が、見つかった候補の中に含まれているかを調べる
+                #.isin()は、複数の候補のどれかに一致するかを調べる機能
+
+                st.dataframe(data.loc[candidate_condition,
+                        ["資材コード", "品名", "型式・寸法","在庫数"]],
+                    hide_index=True)
+
+            return
+            #候補を表示したところで、この関数の処理を終了
+
         elif len(data.loc[condition])>1:
             st.error("同じ名前が複数あるため資材コードを入力してください")
             st.dataframe(data.loc[condition,["資材コード","品名"]],hide_index=True)
