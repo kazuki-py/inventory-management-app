@@ -25,6 +25,13 @@ def save():#更新後のdataをスプレッドシートへ書き戻す
     conn.update(
         spreadsheet=SHEET_URL,
         data=data)
+
+#棚卸一覧保存
+def inventory_save():
+    conn.update(
+            spreadsheet=SHEET_URL,
+            worksheet="棚卸一覧（チェック）",
+            data=inventory_list_data)
     
 #入出庫履歴保存
 def history_save(condition, amount, item_name, stock_typ, current_stock,cancel_situation):
@@ -75,7 +82,7 @@ def order_save(condition_name, stock_typ,order_date,delivery_date,order_quantity
     worksheet="発注履歴",
     data=order_data
 )
-       
+
 #入出庫
 def stock_in_out_form(form_name,header_name,amount_name):#入出庫フォーム用関数
     with st.form(form_name, clear_on_submit=True,enter_to_submit=False):
@@ -401,6 +408,14 @@ def search_button_code(form_name,header_name,target_name,session_key):
                 st.error("この資材コードの入出庫履歴はありません")
             else:
                 st.session_state[session_key] = code
+        elif header_name=="棚卸商品検索":
+            inventory_done_condition=inventory_list_data["資材コード"]==code
+            inventory_status = inventory_list_data.loc[inventory_done_condition,"棚卸状況"].iloc[0]
+            if inventory_status in ["済", "要確認"]:
+                st.error("既にこの商品は棚卸が完了しています")
+            else:
+                st.session_state[session_key] = code
+            
         else:
             if not code in target_name["資材コード"].values:
                 st.error("この資材コードは登録されていません")
@@ -882,7 +897,13 @@ else:
 
     inventory_data = conn.read(spreadsheet=SHEET_URL,worksheet="棚卸モード切替用（触らない）",ttl=0)
     #初期値OFF
-  
+
+    #棚卸一覧データ
+    inventory_list_data = conn.read(spreadsheet=SHEET_URL,worksheet="棚卸一覧（チェック）",ttl=0)
+    inventory_list_data = inventory_list_data.dropna(subset=["資材コード"])
+    inventory_list_data["資材コード"] = (inventory_list_data["資材コード"].astype(int).astype(str).str.zfill(8))
+    inventory_list_data["型式・寸法"] = inventory_list_data["型式・寸法"].astype("object")
+    inventory_list_data["日時"]=inventory_list_data["日時"].astype("object")
 
     col1,col2=st.columns([3,1])
     #メインタイトル
@@ -921,8 +942,8 @@ else:
     else:
         order_tab_name = "発注状況"
 
-    tab1,tab2,tab3,tab4,tab5,tab6= st.tabs(
-        ["入庫", "出庫", "在庫確認","商品管理",order_tab_name,"入出庫取消"])
+    tab1,tab2,tab3,tab4,tab5,tab6,tab7= st.tabs(
+        ["入庫", "出庫", "在庫確認","商品管理",order_tab_name,"入出庫取消","棚卸"])
 
     #在庫確認タブ
     with tab3:
@@ -1047,6 +1068,7 @@ else:
                     order_source_name.insert(0,"")#リストの頭に空白を追加
                     select_order_source = st.selectbox("発注元を履歴から選択する場合はこちらから",order_source_name)
                     order_source = st.text_input("発注元を新規に入力する場合はこちらから")
+                    st.write("【入力必須項目】  \n資材コード/品名/最低在庫数/発注元")
                 submitted=st.form_submit_button("登録")
             # form：複数の入力項目と送信ボタンを1セットにする,登録用紙全体
             # submitted：登録ボタンが押されたかを受け取る,その用紙の「登録する」ボタン
@@ -1090,7 +1112,21 @@ else:
                     #concatは「つなげる」というイメージでOK。
                     data = data.sort_values("資材コード").reset_index(drop=True)
                     #資材コード順に並べる
+                    new_inventory_list_data=pd.DataFrame([{
+                "日時":None,
+                "資材コード": code,
+                "品名": item,
+                "型式・寸法": model,
+                "棚卸在庫数":None,
+                "在庫数との差異":None,
+                "棚卸状況":"未"
+            }])
+                    inventory_list_data = pd.concat([inventory_list_data, new_inventory_list_data], ignore_index=True) 
+                    #concatは「つなげる」というイメージでOK。
+                    inventory_list_data = inventory_list_data.sort_values("資材コード").reset_index(drop=True)
+                    #資材コード順に並べる
                     save()
+                    inventory_save()
                     condition=data["資材コード"]==code
                     st.write("以下のデータを登録しました")
                     st.dataframe(data.loc[condition].drop(columns=["発注日","納入予定日"]),hide_index=True)
@@ -1387,8 +1423,66 @@ else:
                     cancel_condition = data["資材コード"] == cancel_code
                     #dataの資材コードとhistory_dataの資材コード（cancel_code）一致した行
                     cancel_type_check(cancel_type,cancel_condition,cancel_amount,cancel_code)
-                    
-                                                
+        with tab7:
+            if inventory_data["棚卸モード"].iloc[0] == "ON":
+                search_button_code("inventory_list_search","棚卸商品検索",inventory_list_data,"inventory_search_code")
+                if "inventory_search_code" in st.session_state:
+                    with st.form("inventory_form",clear_on_submit=True,enter_to_submit=False):
+                        data_condition=data["資材コード"]==st.session_state["inventory_search_code"]
+                        st.subheader("現在の情報")
+                        st.dataframe(data.loc[data_condition,["資材コード","品名","型式・寸法","在庫数"]],hide_index=True)
+                        st.subheader("棚卸情報入力")
+                        inventory_stock=st.number_input("現在の在庫数を実際に数えて、入力してください",
+                                                        min_value=0,value=None,step=1)
+                        submitted_inventory_send = st.form_submit_button("棚卸情報送信")
+                        if submitted_inventory_send:
+                            if inventory_stock is None:
+                                st.error("在庫数を入力してください")
+                            else:
+                                inventory_condition=inventory_list_data["資材コード"]==st.session_state["inventory_search_code"]
+                                stock_difference=inventory_stock-data.loc[data_condition,"在庫数"].iloc[0]
+                                if stock_difference==0:
+                                    inventory_list_data.loc[inventory_condition,"棚卸状況"]="済"
+                                    st.success("棚卸情報を送信しました  \n"
+                                            "結果：在庫情報と一致")
+                                else:
+                                    inventory_list_data.loc[inventory_condition,"棚卸状況"]="要確認"
+                                    st.warning("棚卸情報を送信しました  \n"
+                                            "結果：在庫情報と差異あり  \n"
+                                            "資材担当に連絡してください")
+                                now = datetime.now(ZoneInfo("Asia/Tokyo")).strftime("%Y/%m/%d %H:%M:%S")
+                                inventory_list_data.loc[inventory_condition,"日時"]=now
+                                inventory_list_data.loc[inventory_condition,"棚卸在庫数"]=int(inventory_stock)
+                                inventory_list_data.loc[inventory_condition,"在庫数との差異"]=int(stock_difference)
+                                inventory_save()
+                                st.session_state.pop("inventory_search_code",None)
+                                #保存後に検索状態を削除
+            
+            else:               
+                st.warning("棚卸期間外のため利用できません")  
+            if (inventory_data["棚卸モード"].iloc[0] == "ON" and st.session_state["login_role"] == "管理者"):
+                with st.form("inventory_reset_form",clear_on_submit=True,enter_to_submit=False):
+                    st.subheader("管理者用")
+                    st.write("棚卸終了後、情報をリセットしてから棚卸モードをOFFにしてください")
+                    inventory_reset_check = st.checkbox("棚卸情報をリセットする場合はこちらにチェック")
+                    inventory_reset=st.form_submit_button("棚卸情報リセット")
+                    unfinished_condition = (inventory_list_data["棚卸状況"].isin(["未", "要確認"]))
+
+                    if inventory_reset:
+                        if not inventory_reset_check:
+                            st.error("リセットする場合はチェックを入れてください")
+
+                        elif unfinished_condition.any():
+                            st.error("未完了または要確認の商品があるため、リセットできません")
+                        else:
+                            inventory_list_data["日時"]=None
+                            inventory_list_data["棚卸在庫数"]=None
+                            inventory_list_data["在庫数との差異"]=None
+                            inventory_list_data["棚卸状況"]="未"
+                            inventory_save()
+                            st.success("棚卸情報がリセットされました")
+                            st.dataframe(inventory_list_data)
+                                                        
 
                         
 
