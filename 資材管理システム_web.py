@@ -387,9 +387,54 @@ def history_search(search_code_name):
                                 # xlsxファイルであることを指定
         )
 
-#商品情報更新         
-def stock_update(column_name,update_name):#商品情報更新用関数
+#商品データ比較用関数
+def data_comparison():
+    missing_inventory_data = data.loc[~data["資材コード"].isin(inventory_list_data["資材コード"])]
+    #在庫一覧にはあるけれど、棚卸一覧にはない商品
+    extra_inventory_data = inventory_list_data.loc[~inventory_list_data["資材コード"].isin(data["資材コード"])]
+    #棚卸一覧にはあるけれど、在庫一覧にはない商品
+    if missing_inventory_data.empty and extra_inventory_data.empty:
+        st.success("在庫一覧と棚卸一覧は一致しています")
+    else:
+        st.warning("在庫一覧と棚卸一覧にずれがあります")
+        if not missing_inventory_data.empty:
+            st.write("棚卸一覧に不足している商品")
+            st.dataframe(missing_inventory_data[["資材コード", "品名", "型式・寸法"]],
+                hide_index=True)
+
+        if not extra_inventory_data.empty:
+            st.write("棚卸一覧にのみ存在する商品")
+            st.dataframe(extra_inventory_data[
+                ["資材コード", "品名", "型式・寸法"]],
+                hide_index=True)
+
+def data_comparison_manager(column_name):
+    missing_inventory_data = data.loc[~data[column_name].isin(inventory_list_data[column_name])]
+    #在庫一覧にはあるけれど、棚卸一覧にはない商品
+    extra_inventory_data = inventory_list_data.loc[~inventory_list_data[column_name].isin(data[column_name])]
+    #棚卸一覧にはあるけれど、在庫一覧にはない商品
+    if missing_inventory_data.empty and extra_inventory_data.empty:
+        st.success(f"在庫一覧と棚卸一覧の{column_name}は一致しています")
+    else:
+        st.warning(f"在庫一覧と棚卸一覧の{column_name}にずれがあります")
+        if not missing_inventory_data.empty:
+            st.write("棚卸一覧に不足している商品")
+            st.dataframe(missing_inventory_data[["資材コード", "品名", "型式・寸法"]],
+                hide_index=True)
+
+        if not extra_inventory_data.empty:
+            st.write("棚卸一覧にのみ存在する商品")
+            st.dataframe(extra_inventory_data[
+                ["資材コード", "品名", "型式・寸法"]],
+                hide_index=True)
+            
+#商品情報更新用関数         
+def stock_update(column_name,update_name):
     data.loc[data["資材コード"]== st.session_state["update_search_code"],column_name]=update_name
+
+#商品情報更新用関数（棚卸一覧用）
+def stock_update_inventory(column_name,update_name):
+    inventory_list_data.loc[inventory_list_data["資材コード"]== st.session_state["update_search_code"],column_name]=update_name 
 
 #検索（在庫検索・更新・削除・不足在庫・入出庫取消に使用）
 def search_button_code(form_name,header_name,target_name,session_key):
@@ -917,6 +962,12 @@ else:
             del st.session_state["login_user"]
             del st.session_state["login_role"]
             st.rerun()
+        
+    #保存データエラー検出
+    if st.session_state["login_role"] == "管理者":
+        comparison_detection_button=st.button("保存データエラー検出")
+        if comparison_detection_button:
+            data_comparison_manager("資材コード")
 
     #棚卸モード
     if st.session_state["login_role"] == "管理者":
@@ -935,6 +986,7 @@ else:
 
         st.write(f"現在の状態：{inventory_data["棚卸モード"].iloc[0]}")
     #タブ全体管理
+    
     #発注状況表示（tab5）
     order_required = ((data["在庫数"] < data["最低在庫数"]) &(data["発注日"].isna()))
     if order_required.any():
@@ -1044,10 +1096,12 @@ else:
             show_stock (section_button,"形区分","C：事務所")
             show_stock (section_button,"形区分","D：物流")
             
-
+    can_manage_stock = (
+    st.session_state["login_role"] == "管理者"
+    and inventory_data["棚卸モード"].iloc[0] == "OFF")
     #登録用フォーム
     with register_tab:
-        if st.session_state["login_role"] == "管理者":
+        if can_manage_stock:
             with st.form("register_form", clear_on_submit=True,enter_to_submit=False):
                 st.header("商品登録")#サブタイトル
                 left,right=st.columns(2)
@@ -1125,17 +1179,21 @@ else:
                     #concatは「つなげる」というイメージでOK。
                     inventory_list_data = inventory_list_data.sort_values("資材コード").reset_index(drop=True)
                     #資材コード順に並べる
-                    save()
                     inventory_save()
+                    save()
+                    data_comparison()
                     condition=data["資材コード"]==code
                     st.write("以下のデータを登録しました")
                     st.dataframe(data.loc[condition].drop(columns=["発注日","納入予定日"]),hide_index=True)
         else:
-            st.warning("商品情報を変更する権限がありません")        
+            if st.session_state["login_role"] != "管理者":
+                st.warning("商品情報を管理する権限がありません") 
+            else:
+                st.warning("現在棚卸中のため利用できません")
 
     #商品情報更新（検索機能・更新フォーム・更新チェックあり）
     with update_tab:
-        if st.session_state["login_role"] == "管理者":
+        if can_manage_stock:
             search_button_code("stock_update_search","商品情報更新",data,"update_search_code")
             if "update_search_code" in st.session_state:
                 with st.form("stock_update", clear_on_submit=True,enter_to_submit=False):#更新用フォーム
@@ -1162,9 +1220,11 @@ else:
                     update_notes=[]#更新内容表示用
                     if up_item:
                         stock_update("品名",up_item)
+                        stock_update_inventory("品名",up_item)
                         update_notes.append("品名")
                     if up_model:
                         stock_update("型式・寸法",up_model)
+                        stock_update_inventory("型式・寸法",up_model)
                         update_notes.append("型式・寸法")
                     if up_min_stock:
                         stock_update("最低在庫数",up_min_stock)
@@ -1184,34 +1244,46 @@ else:
                     if not up_item and not up_model and not up_min_stock and not up_company and not up_section and not up_order_source and not up_unit_price: 
                         st.error("いずれかを入力してください")
                     if  update_notes:
+                        inventory_save()
                         save()
+                        data_comparison()
                         st.subheader("今回の更新情報")
                         for update_note in update_notes:#
                             st.write(f"◆{update_note}")
                         st.dataframe(data.loc[condition,[ "資材コード","品名", "型式・寸法", "最低在庫数","使用会社","形区分","単価（税抜）","発注元"]],hide_index=True)
         else:
-            st.warning("商品情報を変更する権限がありません")
+            if st.session_state["login_role"] != "管理者":
+                st.warning("商品情報を管理する権限がありません") 
+            else:
+                st.warning("現在棚卸中のため利用できません")
 
     #商品削除（検索機能・削除フォーム・削除チェックあり）
     with delete_tab:
-        if st.session_state["login_role"] == "管理者":
+        if can_manage_stock:
             search_button_code("stock_delete_search","商品削除",data,"delete_search_code")
             if "delete_search_code" in st.session_state:
                 with st.form("stock_delete", clear_on_submit=True,enter_to_submit=False):#削除用フォーム
                     st.subheader("削除する情報")
                     condition=data["資材コード"]==st.session_state["delete_search_code"]
+                    inventory_condition=inventory_list_data["資材コード"]==st.session_state["delete_search_code"]
                     st.dataframe(data.loc[condition],hide_index=True)
                     confirm = st.checkbox("この商品を削除することを確認しました")#チェックボックス
                     submitted_delete = st.form_submit_button("削除")
                 if submitted_delete:
                     if confirm:#チェックが入っていれば
-                        data = data.drop(data.loc[condition].index)#data内のdrop指定されたindexの行を削除
+                        inventory_list_data=inventory_list_data.drop(inventory_list_data.loc[inventory_condition].index).reset_index(drop=True)
+                        data = data.drop(data.loc[condition].index).reset_index(drop=True)#data内のdrop指定されたindexの行を削除
+                        inventory_save()
                         save()
+                        data_comparison()
                         st.success("上記の情報は削除されました")
                     else:
                         st.warning("確認欄にチェックを入れてください")
         else:
-            st.warning("商品情報を変更する権限がありません")
+            if st.session_state["login_role"] != "管理者":
+                st.warning("商品情報を管理する権限がありません") 
+            else:
+                st.warning("現在棚卸中のため利用できません")
 
     #発注
     with order_tub:
