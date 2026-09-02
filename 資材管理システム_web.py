@@ -1682,7 +1682,23 @@ else:
                             #保存後に検索状態を削除
         
         else:               
-            st.warning("棚卸期間外のため利用できません")  
+            st.warning("棚卸期間外のため利用できません")
+        with st.container(border=True):
+            st.subheader("未棚卸一覧")
+
+            checked_inventory_data = inventory_list_data[
+                inventory_list_data["棚卸状況"]== "未"
+            ]
+
+            if checked_inventory_data.empty:
+                st.info("棚卸完了済みです")
+            else:
+                st.dataframe(
+                    checked_inventory_data,
+                    hide_index=True,
+                    use_container_width=True
+                )
+          
         if (inventory_data["棚卸モード"].iloc[0] == "ON" and st.session_state["login_role"] == "管理者"):
             with st.form("inventory_reset_form",clear_on_submit=True,enter_to_submit=False):
                 st.subheader("管理者用")
