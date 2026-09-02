@@ -156,7 +156,7 @@ def stock_in_out_check(stock_typ):#入出庫チェック用関数（記録用関
             if candidate_items:
                 st.warning("以下の品名ではありませんか？")
 
-                candidate_condition = data["品名"].isin(similar_items)
+                candidate_condition = data["品名"].isin(candidate_items)
                 #在庫データの品名が、見つかった候補の中に含まれているかを調べる
                 #.isin()は、複数の候補のどれかに一致するかを調べる機能
 
@@ -264,9 +264,10 @@ def create_ledger(ledger_data,search_code_name):
     # writer：Excelを作ってexcel_dataへ書き込むための窓口
     # with st.form()と同じように、with内がExcelを作成する範囲
     with pd.ExcelWriter(excel_data, engine="xlsxwriter") as writer:
-        ledger_data = ledger_data.drop(columns=["資材コード", "品名"])
+        ledger_data = ledger_data.drop(columns=["資材コード", "品名","棚卸時の差異"])
         # ledger_dataの内容を表としてExcelへ書き込む
         # startrow=6 → Excelの7行目から書き込み
+        ledger_data = ledger_data.fillna("")
         ledger_data.to_excel(
             writer,
             sheet_name="在庫帳簿",
@@ -315,10 +316,10 @@ def create_ledger(ledger_data,search_code_name):
         worksheet.set_column("D:D", 16)
         worksheet.set_column("E:E", 12)
         worksheet.set_column("F:F", 12)
-
+        worksheet.set_column("G:G", 25)
         #【実際の書き込み内容】
         # タイトル：A1～G1のセルを結合して書き込む
-        worksheet.merge_range("A1:F1","在 庫 帳 簿",title_format)
+        worksheet.merge_range("A1:G1","在 庫 帳 簿",title_format)
 
         #備考
         worksheet.write("A7", "備考")
@@ -475,12 +476,15 @@ def search_button_code(form_name,header_name,target_name,session_key):
             else:
                 st.session_state[session_key] = code
         elif header_name=="棚卸商品検索":
-            inventory_done_condition=inventory_list_data["資材コード"]==code
-            inventory_status = inventory_list_data.loc[inventory_done_condition,"棚卸状況"].iloc[0]
-            if inventory_status in ["済", "要確認"]:
-                st.error("既にこの商品は棚卸が完了しています")
+            if not code in target_name["資材コード"].values:
+                st.error("この資材コードは登録されていません")
             else:
-                st.session_state[session_key] = code
+                inventory_done_condition=inventory_list_data["資材コード"]==code
+                inventory_status = inventory_list_data.loc[inventory_done_condition,"棚卸状況"].iloc[0]
+                if inventory_status in ["済", "要確認","修正済"]:
+                    st.error("既にこの商品は棚卸が完了しています")
+                else:
+                    st.session_state[session_key] = code
             
         else:
             if not code in target_name["資材コード"].values:
@@ -984,32 +988,33 @@ else:
             del st.session_state["login_role"]
             st.rerun()
 
-    if st.session_state["login_role"] == "管理者":    
-        st.subheader("管理者用機能")
-        col1,col2=st.columns([1,3])
-        #棚卸モード
-        with col1:     
-            inventory_btton= st.button("棚卸モード")
-            if inventory_btton:
-                if  inventory_data["棚卸モード"].iloc[0]=="OFF":
-                    inventory_data.loc[inventory_data["棚卸モード"]=="OFF","棚卸モード"]="ON"
-                    st.success("棚卸モードをONにしました")
-                else:
-                    inventory_data.loc[inventory_data["棚卸モード"]=="ON","棚卸モード"]="OFF"
-                    st.success("棚卸モードをOFFにしました")
-                conn.update(
-                spreadsheet=SHEET_URL,
-                worksheet="棚卸モード切替用（触らない）",
-                data=inventory_data)
+    with st.container(border=True):
+        if st.session_state["login_role"] == "管理者":    
+            st.subheader("管理者用機能")
+            col1,col2=st.columns([1,3])
+            #棚卸モード
+            with col1:     
+                inventory_btton= st.button("棚卸モード")
+                if inventory_btton:
+                    if  inventory_data["棚卸モード"].iloc[0]=="OFF":
+                        inventory_data.loc[inventory_data["棚卸モード"]=="OFF","棚卸モード"]="ON"
+                        st.success("棚卸モードをONにしました")
+                    else:
+                        inventory_data.loc[inventory_data["棚卸モード"]=="ON","棚卸モード"]="OFF"
+                        st.success("棚卸モードをOFFにしました")
+                    conn.update(
+                    spreadsheet=SHEET_URL,
+                    worksheet="棚卸モード切替用（触らない）",
+                    data=inventory_data)
 
-            st.write(f"現在の状態：{inventory_data["棚卸モード"].iloc[0]}")
+                st.write(f"現在の状態：{inventory_data["棚卸モード"].iloc[0]}")
 
-        #保存データエラー検出
-        with col2:  
-            comparison_detection_button=st.button("保存データエラー検出")
-            if comparison_detection_button:
-                data_comparison_manager("資材コード")
-                item_information_comparison()
+            #保存データエラー検出
+            with col2:  
+                comparison_detection_button=st.button("保存データエラー検出")
+                if comparison_detection_button:
+                    data_comparison_manager("資材コード")
+                    item_information_comparison()
 
         #
     #タブ全体管理
@@ -1319,25 +1324,25 @@ else:
 
     #発注
     with order_tub:
+        attention_condition = (data["納入状況"] == "要確認")
+        if attention_condition.any():
+            attention_count = int(attention_condition.sum())
+
+            st.error(f"納入状況が要確認の商品が"f"{attention_count}件あります")
+
+            st.dataframe(data.loc[
+                    attention_condition,[
+                        "資材コード",
+                        "品名",
+                        "型式・寸法",
+                        "発注数量",
+                        "発注後未入庫数量",
+                        "納入状況"]],
+                hide_index=True)
         condition =((data["在庫数"] < data["最低在庫数"]) &
-        (data["発注日"].isna()))#isna() は、その値が NaN（欠損値・空欄）かどうかを見る
+                (data["発注日"].isna()))#isna() は、その値が NaN（欠損値・空欄）かどうかを見る
         if condition.any():#condition(最低在庫数以下の在庫数)の中にTrueが1つでもあるなら
             if st.session_state["login_role"] in ["発注担当", "管理者"]:
-                attention_condition = (data["納入状況"] == "要確認")
-                if attention_condition.any():
-                    attention_count = int(attention_condition.sum())
-
-                    st.error(f"納入状況が要確認の商品が"f"{attention_count}件あります")
-
-                    st.dataframe(data.loc[
-                            attention_condition,[
-                                "資材コード",
-                                "品名",
-                                "型式・寸法",
-                                "発注数量",
-                                "発注後未入庫数量",
-                                "納入状況"]],
-                        hide_index=True)
                 
                 search_button_code("order_search","発注",data,"order_search_code")
                 if "order_search_code" in st.session_state:
@@ -1453,6 +1458,7 @@ else:
                                         data.loc[cancel_change_condition, "納入予定日"] = None
                                         data.loc[cancel_change_condition, "発注数量"] = None
                                         data.loc[cancel_change_condition, "発注後未入庫数量"] = 0
+                                        data.loc[cancel_change_condition,"納入状況"] = "未"
                                         changed = True
                                         order_save(cancel_change_condition,"発注取消","取消","取消","取消")
                                         st.success("発注を取り消しました")
@@ -1549,6 +1555,21 @@ else:
     #在庫修正
     with stock_correction_tub:
         if st.session_state["login_role"] == "管理者":
+            attention_inventory_condition = (inventory_list_data["棚卸状況"] == "要確認")
+            if attention_inventory_condition.any():
+                attention_inventory_count = int(attention_inventory_condition.sum())
+
+                st.error(f"棚卸状況が要確認の商品が"f"{attention_inventory_count}件あります")
+
+                st.dataframe(inventory_list_data.loc[
+                        attention_inventory_condition,[
+                            "資材コード",
+                            "品名",
+                            "型式・寸法",
+                            "棚卸在庫数",
+                            "在庫数との差異",
+                            "棚卸状況"]],
+                    hide_index=True)
             search_button_code("stock_correction_search","在庫修正",data,"correction_search_code")
             if "correction_search_code" in st.session_state:
                 condition=data["資材コード"]==st.session_state["correction_search_code"]
