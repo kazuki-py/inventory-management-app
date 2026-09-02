@@ -994,7 +994,7 @@ else:
             col1,col2=st.columns([1,3])
             #棚卸モード
             with col1:     
-                inventory_btton= st.button("棚卸モード")
+                inventory_btton= st.button("棚卸モード切替")
                 if inventory_btton:
                     if  inventory_data["棚卸モード"].iloc[0]=="OFF":
                         inventory_data.loc[inventory_data["棚卸モード"]=="OFF","棚卸モード"]="ON"
@@ -1021,13 +1021,22 @@ else:
     
     #発注状況表示（tab5）
     order_required = ((data["在庫数"] < data["最低在庫数"]) &(data["発注日"].isna()))
-    if order_required.any():
+    order_attention = (order_required.any() or (data["納入状況"] == "要確認").any())
+    if order_attention:
         order_tab_name = "⚠️ 発注状況"
     else:
         order_tab_name = "発注状況"
+    #棚卸状況表示
+    inventory_attention = (
+    inventory_list_data["棚卸状況"] == "要確認").any()
+
+    if inventory_attention:
+        correction_tab_name = "⚠️ 修正"
+    else:
+        correction_tab_name = "修正"
 
     tab1,tab2,tab3,tab4,tab5,tab6,tab7= st.tabs(
-        ["入庫", "出庫", "在庫確認","商品管理",order_tab_name,"修正","棚卸"])
+        ["入庫", "出庫", "在庫確認","商品管理",order_tab_name,correction_tab_name,"棚卸"])
 
     #在庫確認タブ
     with tab3:
@@ -1328,7 +1337,7 @@ else:
         if attention_condition.any():
             attention_count = int(attention_condition.sum())
 
-            st.error(f"納入状況が要確認の商品が"f"{attention_count}件あります")
+            st.error(f"⚠️ 納入状況が要確認の商品が"f"{attention_count}件あります")
 
             st.dataframe(data.loc[
                     attention_condition,[
@@ -1559,7 +1568,7 @@ else:
             if attention_inventory_condition.any():
                 attention_inventory_count = int(attention_inventory_condition.sum())
 
-                st.error(f"棚卸状況が要確認の商品が"f"{attention_inventory_count}件あります")
+                st.error(f"⚠️ 棚卸状況が要確認の商品が"f"{attention_inventory_count}件あります")
 
                 st.dataframe(inventory_list_data.loc[
                         attention_inventory_condition,[
@@ -1591,7 +1600,9 @@ else:
                         st.dataframe(data.loc[condition,["資材コード","品名","型式・寸法","在庫数"]],hide_index=True)
                         st.dataframe(inventory_list_data.loc[inventory_condition,["棚卸在庫数","在庫数との差異","棚卸状況"]],hide_index=True)
                         correction_amount=st.number_input("修正数量（減らす場合は負の値を入力）",value=0)
-                        confirm_inventory_correction = st.checkbox("棚卸数量確認後、修正する場合はこちらにチェック")
+                        st.caption("例：在庫を3個増やす場合は「3」、2個減らす場合は「-2」")
+                        confirm_inventory_correction = st.checkbox("棚卸結果に合わせて在庫数を修正する")
+                        st.caption("棚卸状況が「要確認」の場合は、チェックを入れてください")
                         correction_reason=st.text_input("修正理由")
                         correction_button=st.form_submit_button("在庫修正")
                         item_name=data.loc[condition,"品名"].iloc[0]
