@@ -34,7 +34,7 @@ def inventory_save():
             data=inventory_list_data)
     
 #入出庫履歴保存
-def history_save(condition, amount, item_name, stock_typ, current_stock,cancel_situation):
+def history_save(condition, amount, item_name, stock_typ, current_stock,cancel_situation,correction_reason=None,inventory_difference=None):
     global history_data
     code_number = data.loc[condition, "資材コード"].iloc[0]
     now = datetime.now(ZoneInfo("Asia/Tokyo")).strftime("%Y/%m/%d %H:%M:%S")#その瞬間の東京の日時がnowに入る　表示方法2026/08/16 16:52:31
@@ -46,7 +46,9 @@ def history_save(condition, amount, item_name, stock_typ, current_stock,cancel_s
         "数量": amount,
         "入出庫後在庫数":current_stock,
         "取消状況":cancel_situation,
-        "作業者":st.session_state["login_user"]
+        "作業者":st.session_state["login_user"],
+        "修正理由":correction_reason,
+        "棚卸時の差異":inventory_difference
         }])
 
     history_data = pd.concat([history_data, new_history_data], ignore_index=True)
@@ -407,6 +409,25 @@ def data_comparison():
             st.dataframe(extra_inventory_data[
                 ["資材コード", "品名", "型式・寸法"]],
                 hide_index=True)
+def item_information_comparison():#AI完全作成
+    comparison_data = data[["資材コード", "品名", "型式・寸法"]].merge(
+        inventory_list_data[["資材コード", "品名", "型式・寸法"]],
+        on="資材コード",
+        how="inner",
+        suffixes=("_在庫一覧", "_棚卸一覧"))
+
+    different_condition = ((comparison_data["品名_在庫一覧"].fillna("")
+                            != comparison_data["品名_棚卸一覧"].fillna(""))|
+        (comparison_data["型式・寸法_在庫一覧"].fillna("")
+         != comparison_data["型式・寸法_棚卸一覧"].fillna("")))#|:または
+
+    different_data = comparison_data.loc[different_condition]
+
+    if different_data.empty:
+        st.success("品名・型式寸法は資材コードごとに一致しています")
+    else:
+        st.warning("品名または型式寸法にずれがあります")
+        st.dataframe(different_data,hide_index=True)
 
 def data_comparison_manager(column_name):
     missing_inventory_data = data.loc[~data[column_name].isin(inventory_list_data[column_name])]
@@ -962,29 +983,35 @@ else:
             del st.session_state["login_user"]
             del st.session_state["login_role"]
             st.rerun()
-        
-    #保存データエラー検出
-    if st.session_state["login_role"] == "管理者":
-        comparison_detection_button=st.button("保存データエラー検出")
-        if comparison_detection_button:
-            data_comparison_manager("資材コード")
 
-    #棚卸モード
-    if st.session_state["login_role"] == "管理者":
-        inventory_btton= st.button("棚卸モード")
-        if inventory_btton:
-            if  inventory_data["棚卸モード"].iloc[0]=="OFF":
-                inventory_data.loc[inventory_data["棚卸モード"]=="OFF","棚卸モード"]="ON"
-                st.success("棚卸モードをONにしました")
-            else:
-                inventory_data.loc[inventory_data["棚卸モード"]=="ON","棚卸モード"]="OFF"
-                st.success("棚卸モードをOFFにしました")
-            conn.update(
-            spreadsheet=SHEET_URL,
-            worksheet="棚卸モード切替用（触らない）",
-            data=inventory_data)
+    if st.session_state["login_role"] == "管理者":    
+        st.subheader("管理者用機能")
+        col1,col2=st.columns([1,3])
+        #棚卸モード
+        with col1:     
+            inventory_btton= st.button("棚卸モード")
+            if inventory_btton:
+                if  inventory_data["棚卸モード"].iloc[0]=="OFF":
+                    inventory_data.loc[inventory_data["棚卸モード"]=="OFF","棚卸モード"]="ON"
+                    st.success("棚卸モードをONにしました")
+                else:
+                    inventory_data.loc[inventory_data["棚卸モード"]=="ON","棚卸モード"]="OFF"
+                    st.success("棚卸モードをOFFにしました")
+                conn.update(
+                spreadsheet=SHEET_URL,
+                worksheet="棚卸モード切替用（触らない）",
+                data=inventory_data)
 
-        st.write(f"現在の状態：{inventory_data["棚卸モード"].iloc[0]}")
+            st.write(f"現在の状態：{inventory_data["棚卸モード"].iloc[0]}")
+
+        #保存データエラー検出
+        with col2:  
+            comparison_detection_button=st.button("保存データエラー検出")
+            if comparison_detection_button:
+                data_comparison_manager("資材コード")
+                item_information_comparison()
+
+        #
     #タブ全体管理
     
     #発注状況表示（tab5）
@@ -995,7 +1022,7 @@ else:
         order_tab_name = "発注状況"
 
     tab1,tab2,tab3,tab4,tab5,tab6,tab7= st.tabs(
-        ["入庫", "出庫", "在庫確認","商品管理",order_tab_name,"入出庫取消","棚卸"])
+        ["入庫", "出庫", "在庫確認","商品管理",order_tab_name,"修正","棚卸"])
 
     #在庫確認タブ
     with tab3:
@@ -1014,6 +1041,11 @@ else:
     with tab5:
         order_tub , already_ordered_tub= st.tabs(
                 ["発注","発注情報変更（取消）"])
+
+    #修正
+    with tab6:
+        history_cancel_tub,stock_correction_tub=st.tabs(
+            ["入出庫取消","在庫修正"])
     
     #入庫用フォーム（タブ）
     with tab1:
@@ -1291,6 +1323,22 @@ else:
         (data["発注日"].isna()))#isna() は、その値が NaN（欠損値・空欄）かどうかを見る
         if condition.any():#condition(最低在庫数以下の在庫数)の中にTrueが1つでもあるなら
             if st.session_state["login_role"] in ["発注担当", "管理者"]:
+                attention_condition = (data["納入状況"] == "要確認")
+                if attention_condition.any():
+                    attention_count = int(attention_condition.sum())
+
+                    st.error(f"納入状況が要確認の商品が"f"{attention_count}件あります")
+
+                    st.dataframe(data.loc[
+                            attention_condition,[
+                                "資材コード",
+                                "品名",
+                                "型式・寸法",
+                                "発注数量",
+                                "発注後未入庫数量",
+                                "納入状況"]],
+                        hide_index=True)
+                
                 search_button_code("order_search","発注",data,"order_search_code")
                 if "order_search_code" in st.session_state:
                     order_condition = (
@@ -1356,7 +1404,9 @@ else:
                                )
                     else:
                         st.error("この商品は現在、発注対象ではありません") 
+                    attention_condition = (data["納入状況"] == "要確認")
 
+                    
             else:
                 st.warning("発注権限がありません")
             st.subheader("⚠️ 発注確認")
@@ -1451,7 +1501,7 @@ else:
             st.caption("✓ 発注している部品はありません")
 
     #入出庫取消
-    with tab6:
+    with history_cancel_tub:
         if (inventory_data["棚卸モード"].iloc[0] 
                         == "ON" and st.session_state["login_role"] != "管理者"):
             manager = next(
@@ -1495,65 +1545,134 @@ else:
                     cancel_condition = data["資材コード"] == cancel_code
                     #dataの資材コードとhistory_dataの資材コード（cancel_code）一致した行
                     cancel_type_check(cancel_type,cancel_condition,cancel_amount,cancel_code)
-        with tab7:
-            if inventory_data["棚卸モード"].iloc[0] == "ON":
-                search_button_code("inventory_list_search","棚卸商品検索",inventory_list_data,"inventory_search_code")
-                if "inventory_search_code" in st.session_state:
-                    with st.form("inventory_form",clear_on_submit=True,enter_to_submit=False):
-                        data_condition=data["資材コード"]==st.session_state["inventory_search_code"]
+
+    #在庫修正
+    with stock_correction_tub:
+        if st.session_state["login_role"] == "管理者":
+            search_button_code("stock_correction_search","在庫修正",data,"correction_search_code")
+            if "correction_search_code" in st.session_state:
+                condition=data["資材コード"]==st.session_state["correction_search_code"]
+                inventory_condition=inventory_list_data["資材コード"]==st.session_state["correction_search_code"]
+                if not inventory_condition.any():
+                    st.error(
+                        "棚卸一覧にこの商品がありません。"
+                        "保存データエラー検出を実行してください"
+                    )
+
+                else:
+                    inventory_status = inventory_list_data.loc[
+                        inventory_condition,
+                        "棚卸状況"
+                    ].iloc[0]
+
+                    with st.form("stock_correction_form",clear_on_submit=True,enter_to_submit=False):
                         st.subheader("現在の情報")
-                        st.dataframe(data.loc[data_condition,["資材コード","品名","型式・寸法","在庫数"]],hide_index=True)
-                        st.subheader("棚卸情報入力")
-                        inventory_stock=st.number_input("現在の在庫数を実際に数えて、入力してください",
-                                                        min_value=0,value=None,step=1)
-                        submitted_inventory_send = st.form_submit_button("棚卸情報送信")
-                        if submitted_inventory_send:
-                            if inventory_stock is None:
-                                st.error("在庫数を入力してください")
-                            else:
-                                inventory_condition=inventory_list_data["資材コード"]==st.session_state["inventory_search_code"]
-                                stock_difference=inventory_stock-data.loc[data_condition,"在庫数"].iloc[0]
-                                if stock_difference==0:
-                                    inventory_list_data.loc[inventory_condition,"棚卸状況"]="済"
-                                    st.success("棚卸情報を送信しました  \n"
-                                            "結果：在庫情報と一致")
+                        st.dataframe(data.loc[condition,["資材コード","品名","型式・寸法","在庫数"]],hide_index=True)
+                        st.dataframe(inventory_list_data.loc[inventory_condition,["棚卸在庫数","在庫数との差異","棚卸状況"]],hide_index=True)
+                        correction_amount=st.number_input("修正数量（減らす場合は負の値を入力）",value=0)
+                        confirm_inventory_correction = st.checkbox("棚卸数量確認後、修正する場合はこちらにチェック")
+                        correction_reason=st.text_input("修正理由")
+                        correction_button=st.form_submit_button("在庫修正")
+                        item_name=data.loc[condition,"品名"].iloc[0]
+                        if correction_button:
+                            correction_comparison=data.loc[condition,"在庫数"].iloc[0]+correction_amount
+                            if correction_amount==0:
+                                st.error("修正数量を入力してください")
+                            elif not correction_reason.strip():
+                                st.error("修正理由を入力してください")
+                            elif correction_comparison<0:
+                                st.error("修正後、在庫数が0を下回るため修正できません")
+                            elif (inventory_status == "要確認"and not confirm_inventory_correction):
+                                st.error(
+                                    "棚卸修正対象です。棚卸数量を確認し、"
+                                    "確認欄へチェックを入れてください")
+
+                            elif confirm_inventory_correction:
+                                inventory_difference=inventory_list_data.loc[inventory_condition,"在庫数との差異"].iloc[0]
+                                if inventory_status!="要確認":
+                                    st.error("棚卸修正対象ではありません")
+                                elif correction_comparison!=inventory_list_data.loc[inventory_condition,"棚卸在庫数"].iloc[0]:
+                                    st.error("修正後在庫数と棚卸在庫数が一致してません、修正数をご確認ください")
                                 else:
-                                    inventory_list_data.loc[inventory_condition,"棚卸状況"]="要確認"
-                                    st.warning("棚卸情報を送信しました  \n"
-                                            "結果：在庫情報と差異あり  \n"
-                                            "資材担当に連絡してください")
-                                now = datetime.now(ZoneInfo("Asia/Tokyo")).strftime("%Y/%m/%d %H:%M:%S")
-                                inventory_list_data.loc[inventory_condition,"日時"]=now
-                                inventory_list_data.loc[inventory_condition,"棚卸在庫数"]=int(inventory_stock)
-                                inventory_list_data.loc[inventory_condition,"在庫数との差異"]=int(stock_difference)
-                                inventory_save()
-                                st.session_state.pop("inventory_search_code",None)
-                                #保存後に検索状態を削除
+                                    data.loc[condition,"在庫数"]+=correction_amount
+                                    inventory_list_data.loc[inventory_condition,"在庫数との差異"]=0
+                                    inventory_list_data.loc[inventory_condition,"棚卸状況"]="修正済"
+                                    history_save(condition, correction_amount, item_name,"修正", correction_comparison,"ー",correction_reason,inventory_difference)
+                                    inventory_save()
+                                    save()
+                                    st.success("在庫数の修正が完了しました、棚卸データもご確認ください")
+                                    st.dataframe(data.loc[condition,["資材コード","品名","型式・寸法","在庫数"]],hide_index=True)
+                                    st.dataframe(inventory_list_data.loc[inventory_condition,["棚卸在庫数","在庫数との差異","棚卸状況"]],hide_index=True)
             
-            else:               
-                st.warning("棚卸期間外のため利用できません")  
-            if (inventory_data["棚卸モード"].iloc[0] == "ON" and st.session_state["login_role"] == "管理者"):
-                with st.form("inventory_reset_form",clear_on_submit=True,enter_to_submit=False):
-                    st.subheader("管理者用")
-                    st.write("棚卸終了後、情報をリセットしてから棚卸モードをOFFにしてください")
-                    inventory_reset_check = st.checkbox("棚卸情報をリセットする場合はこちらにチェック")
-                    inventory_reset=st.form_submit_button("棚卸情報リセット")
-                    unfinished_condition = (inventory_list_data["棚卸状況"].isin(["未", "要確認"]))
+                            else:
+                                data.loc[condition,"在庫数"]+=correction_amount
+                                history_save(condition, correction_amount, item_name,"修正",correction_comparison ,"ー",correction_reason)
+                                save()
+                                st.success("在庫数の修正が完了しました")
+                                st.dataframe(data.loc[condition,["資材コード","品名","型式・寸法","在庫数"]],hide_index=True)
 
-                    if inventory_reset:
-                        if not inventory_reset_check:
-                            st.error("リセットする場合はチェックを入れてください")
+        else:
+            st.warning("修正権限がありません")
 
-                        elif unfinished_condition.any():
-                            st.error("未完了または要確認の商品があるため、リセットできません")
+    with tab7:
+        if inventory_data["棚卸モード"].iloc[0] == "ON":
+            search_button_code("inventory_list_search","棚卸商品検索",inventory_list_data,"inventory_search_code")
+            if "inventory_search_code" in st.session_state:
+                with st.form("inventory_form",clear_on_submit=True,enter_to_submit=False):
+                    data_condition=data["資材コード"]==st.session_state["inventory_search_code"]
+                    st.subheader("現在の情報")
+                    st.dataframe(data.loc[data_condition,["資材コード","品名","型式・寸法","在庫数"]],hide_index=True)
+                    st.subheader("棚卸情報入力")
+                    inventory_stock=st.number_input("現在の在庫数を実際に数えて、入力してください",
+                                                    min_value=0,value=None,step=1)
+                    submitted_inventory_send = st.form_submit_button("棚卸情報送信")
+                    if submitted_inventory_send:
+                        if inventory_stock is None:
+                            st.error("在庫数を入力してください")
                         else:
-                            inventory_list_data["日時"]=None
-                            inventory_list_data["棚卸在庫数"]=None
-                            inventory_list_data["在庫数との差異"]=None
-                            inventory_list_data["棚卸状況"]="未"
+                            inventory_condition=inventory_list_data["資材コード"]==st.session_state["inventory_search_code"]
+                            stock_difference=inventory_stock-data.loc[data_condition,"在庫数"].iloc[0]
+                            if stock_difference==0:
+                                inventory_list_data.loc[inventory_condition,"棚卸状況"]="済"
+                                st.success("棚卸情報を送信しました  \n"
+                                        "結果：在庫情報と一致")
+                            else:
+                                inventory_list_data.loc[inventory_condition,"棚卸状況"]="要確認"
+                                st.warning("棚卸情報を送信しました  \n"
+                                        "結果：在庫情報と差異あり  \n"
+                                        "資材担当に連絡してください")
+                            now = datetime.now(ZoneInfo("Asia/Tokyo")).strftime("%Y/%m/%d %H:%M:%S")
+                            inventory_list_data.loc[inventory_condition,"日時"]=now
+                            inventory_list_data.loc[inventory_condition,"棚卸在庫数"]=int(inventory_stock)
+                            inventory_list_data.loc[inventory_condition,"在庫数との差異"]=int(stock_difference)
                             inventory_save()
-                            st.success("棚卸情報がリセットされました")
-                            st.dataframe(inventory_list_data)
+                            st.session_state.pop("inventory_search_code",None)
+                            #保存後に検索状態を削除
+        
+        else:               
+            st.warning("棚卸期間外のため利用できません")  
+        if (inventory_data["棚卸モード"].iloc[0] == "ON" and st.session_state["login_role"] == "管理者"):
+            with st.form("inventory_reset_form",clear_on_submit=True,enter_to_submit=False):
+                st.subheader("管理者用")
+                st.write("棚卸終了後、情報をリセットしてから棚卸モードをOFFにしてください")
+                inventory_reset_check = st.checkbox("棚卸情報をリセットする場合はこちらにチェック")
+                inventory_reset=st.form_submit_button("棚卸情報リセット")
+                unfinished_condition = (inventory_list_data["棚卸状況"].isin(["未", "要確認"]))
+
+                if inventory_reset:
+                    if not inventory_reset_check:
+                        st.error("リセットする場合はチェックを入れてください")
+
+                    elif unfinished_condition.any():
+                        st.error("未完了または要確認の商品があるため、リセットできません")
+                    else:
+                        inventory_list_data["日時"]=None
+                        inventory_list_data["棚卸在庫数"]=None
+                        inventory_list_data["在庫数との差異"]=None
+                        inventory_list_data["棚卸状況"]="未"
+                        inventory_save()
+                        st.success("棚卸情報がリセットされました")
+                        st.dataframe(inventory_list_data)
                                                         
 
                         
