@@ -988,8 +988,8 @@ else:
             del st.session_state["login_role"]
             st.rerun()
 
-    with st.container(border=True):
-        if st.session_state["login_role"] == "管理者":    
+    if st.session_state["login_role"] == "管理者":    
+        with st.container(border=True):    
             st.subheader("管理者用機能")
             col1,col2=st.columns([1,3])
             #棚卸モード
