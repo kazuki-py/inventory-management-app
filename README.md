@@ -5,6 +5,10 @@ PythonとStreamlitで作成した、Web版の資材管理システムです。
 資材の入出庫や在庫確認、発注、棚卸などの作業をWebブラウザ上で行えます。
 各種データはGoogleスプレッドシートへ保存されます。
 
+## アプリ
+
+[資材管理システムを開く](https://inventory-management-app-ou9hyeos8fxdmqdmmb4f5j.streamlit.app/)
+
 ## 主な機能
 
 * 商品登録・更新・削除
