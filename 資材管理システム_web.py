@@ -1659,8 +1659,8 @@ else:
             if "inventory_search_code" in st.session_state:
                 with st.form("inventory_form",clear_on_submit=True,enter_to_submit=False):
                     data_condition=data["資材コード"]==st.session_state["inventory_search_code"]
-                    st.subheader("現在の情報")
-                    st.dataframe(data.loc[data_condition,["資材コード","品名","型式・寸法","在庫数"]],hide_index=True)
+                    st.subheader("商品情報")
+                    st.dataframe(data.loc[data_condition,["資材コード","品名","型式・寸法"]],hide_index=True)
                     st.subheader("棚卸情報入力")
                     inventory_stock=st.number_input("現在の在庫数を実際に数えて、入力してください",
                                                     min_value=0,value=None,step=1)
@@ -1687,24 +1687,24 @@ else:
                             inventory_save()
                             st.session_state.pop("inventory_search_code",None)
                             #保存後に検索状態を削除
-        
+            with st.container(border=True):
+                        st.subheader("未棚卸一覧")
+            
+                        checked_inventory_data = inventory_list_data[
+                            inventory_list_data["棚卸状況"]== "未"
+                        ]
+            
+                        if checked_inventory_data.empty:
+                            st.info("棚卸完了済みです")
+                        else:
+                            st.dataframe(
+                                checked_inventory_data,
+                                hide_index=True,
+                                use_container_width=True
+                            )
         else:               
             st.warning("棚卸期間外のため利用できません")
-        with st.container(border=True):
-            st.subheader("未棚卸一覧")
-
-            checked_inventory_data = inventory_list_data[
-                inventory_list_data["棚卸状況"]== "未"
-            ]
-
-            if checked_inventory_data.empty:
-                st.info("棚卸完了済みです")
-            else:
-                st.dataframe(
-                    checked_inventory_data,
-                    hide_index=True,
-                    use_container_width=True
-                )
+        
           
         if (inventory_data["棚卸モード"].iloc[0] == "ON" and st.session_state["login_role"] == "管理者"):
             with st.form("inventory_reset_form",clear_on_submit=True,enter_to_submit=False):
