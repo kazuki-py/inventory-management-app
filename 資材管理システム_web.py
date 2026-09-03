@@ -410,6 +410,7 @@ def data_comparison():
             st.dataframe(extra_inventory_data[
                 ["資材コード", "品名", "型式・寸法"]],
                 hide_index=True)
+#エラー検出用関数-1      
 def item_information_comparison():#AI完全作成
     comparison_data = data[["資材コード", "品名", "型式・寸法"]].merge(
         inventory_list_data[["資材コード", "品名", "型式・寸法"]],
@@ -430,6 +431,7 @@ def item_information_comparison():#AI完全作成
         st.warning("品名または型式寸法にずれがあります")
         st.dataframe(different_data,hide_index=True)
 
+#エラー検出用関数-2
 def data_comparison_manager(column_name):
     missing_inventory_data = data.loc[~data[column_name].isin(inventory_list_data[column_name])]
     #在庫一覧にはあるけれど、棚卸一覧にはない商品
@@ -508,7 +510,7 @@ def search_by_pattern(form_name,sub_header_name,session_key):
         condition=data[sub_header_name]==st.session_state[session_key]
         if condition.any():
             st.subheader("商品情報")
-            st.dataframe(data.loc[condition].drop(columns=["発注日","納入予定日"]),hide_index=True)
+            st.dataframe(data.loc[condition,["資材コード","品名","型式・寸法","在庫数","最低在庫数","使用会社","形区分"]],hide_index=True)
         else:
             st.error(f"{st.session_state[session_key]}の商品は登録されていません")
 
@@ -900,6 +902,7 @@ def cancel_type_check(cancel_type,cancel_condition,cancel_amount,cancel_code):
 
 #ログイン画面
 if "login_user" not in st.session_state:
+    st.title("資材管理システム")
 
     with st.form("login_form"):
 
@@ -1109,7 +1112,7 @@ else:
         if "search_code" in st.session_state:
             st.subheader("商品情報")
             condition=data["資材コード"]==st.session_state["search_code"]
-            st.dataframe(data.loc[condition].drop(columns=["発注日","納入予定日"]),hide_index=True)
+            st.dataframe(data.loc[condition,["資材コード","品名","型式・寸法","在庫数","最低在庫数","使用会社","形区分"]],hide_index=True)
 
     #条件別検索
     with pattern_search_tub:
@@ -1149,7 +1152,11 @@ else:
     with register_tab:
         if can_manage_stock:
             with st.form("register_form", clear_on_submit=True,enter_to_submit=False):
-                st.header("商品登録")#サブタイトル
+                left,right=st.columns(2)
+                with left:
+                    st.header("商品登録")#サブタイトル
+                with right:
+                    st.write("【入力必須項目】  \n資材コード/品名/最低在庫数/発注元")
                 left,right=st.columns(2)
                 with left:
                     code=st.text_input("資材コードを入力してください")
@@ -1168,7 +1175,7 @@ else:
                     order_source_name.insert(0,"")#リストの頭に空白を追加
                     select_order_source = st.selectbox("発注元を履歴から選択する場合はこちらから",order_source_name)
                     order_source = st.text_input("発注元を新規に入力する場合はこちらから")
-                    st.write("【入力必須項目】  \n資材コード/品名/最低在庫数/発注元")
+                    
                 submitted=st.form_submit_button("登録")
             # form：複数の入力項目と送信ボタンを1セットにする,登録用紙全体
             # submitted：登録ボタンが押されたかを受け取る,その用紙の「登録する」ボタン
@@ -1230,7 +1237,7 @@ else:
                     data_comparison()
                     condition=data["資材コード"]==code
                     st.write("以下のデータを登録しました")
-                    st.dataframe(data.loc[condition].drop(columns=["発注日","納入予定日"]),hide_index=True)
+                    st.dataframe(data.loc[condition].drop(columns=["発注日","納入予定日","発注後未入庫数量","納入状況","発注数量"]),hide_index=True)
         else:
             if st.session_state["login_role"] != "管理者":
                 st.warning("商品情報を管理する権限がありません") 
