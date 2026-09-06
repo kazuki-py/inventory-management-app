@@ -991,14 +991,7 @@ else:
             del st.session_state["login_role"]
             st.rerun()
             
-    #更新ボタン
-    button_col, message_col = st.columns([1, 3])
-    with button_col:
-        submitted = st.button("更新")
-
-    with message_col:
-        if submitted:
-            st.success("更新しました")
+    
     if st.session_state["login_role"] == "管理者":    
         with st.container(border=True):    
             st.subheader("管理者用機能")
@@ -1737,7 +1730,15 @@ else:
                         st.success("棚卸情報がリセットされました")
                         st.dataframe(inventory_list_data)
 
-    
+    #更新ボタン
+    button_col, message_col = st.columns([2, 2])
+    with button_col:
+        submitted = st.button("※画面を最新状態にする")
+
+    with message_col:
+        if submitted:
+            st.success("更新しました")
+
                                                         
 
                         
