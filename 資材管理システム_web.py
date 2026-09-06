@@ -1689,8 +1689,10 @@ else:
                             st.session_state.pop("inventory_search_code",None)
                             #保存後に検索状態を削除
             with st.container(border=True):
-                        st.subheader("未棚卸一覧")
-            
+                        inventory_count=len(inventory_list_data)
+                        checked_inventory_count=int((inventory_list_data["棚卸状況"]=="未").sum())
+                        st.subheader(f"未棚卸一覧　{checked_inventory_count}/{inventory_count}")
+                        
                         checked_inventory_data = inventory_list_data[
                             inventory_list_data["棚卸状況"]== "未"
                         ]
