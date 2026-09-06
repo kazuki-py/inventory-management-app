@@ -1033,7 +1033,7 @@ else:
     inventory_attention = (
     inventory_list_data["棚卸状況"] == "要確認").any()
 
-    if inventory_attention:
+    if inventory_attention and (inventory_data["棚卸モード"].iloc[0] == "ON"):
         correction_tab_name = "⚠️ 修正"
     else:
         correction_tab_name = "修正"
@@ -1572,7 +1572,7 @@ else:
     with stock_correction_tub:
         if st.session_state["login_role"] == "管理者":
             attention_inventory_condition = (inventory_list_data["棚卸状況"] == "要確認")
-            if attention_inventory_condition.any():
+            if attention_inventory_condition.any() and (inventory_data["棚卸モード"].iloc[0] == "ON"):
                 attention_inventory_count = int(attention_inventory_condition.sum())
 
                 st.error(f"⚠️ 棚卸状況が要確認の商品が"f"{attention_inventory_count}件あります")
