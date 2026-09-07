@@ -389,6 +389,60 @@ def history_search(search_code_name):
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                                 # xlsxファイルであることを指定
         )
+        
+#検索（在庫検索・更新・削除・不足在庫・入出庫取消に使用）
+def search_button_code(form_name,header_name,target_name,session_key):
+    #検索用フォーム→チェック→コード維持保存用関数
+    with st.form(form_name, clear_on_submit=True,enter_to_submit=False):
+        st.header(header_name)
+        st.write("資材コードを入力して検索ボタンを押してください")
+        code=st.text_input("資材コード")
+        submitted= st.form_submit_button("検索")
+        
+    if submitted:#更新用、削除用それぞれに判定される
+        if not code.isdigit() or len(code)!= 8:
+                st.error("資材コードは8桁の数字で入力してください") 
+        elif  header_name=="入出庫履歴" or header_name=="入出庫取消":
+            if not code in target_name["資材コード"].values:
+                st.error("この資材コードの入出庫履歴はありません")
+            else:
+                st.session_state[session_key] = code
+        elif header_name=="棚卸商品検索":
+            if not code in target_name["資材コード"].values:
+                st.error("この資材コードは登録されていません")
+            else:
+                inventory_done_condition=inventory_list_data["資材コード"]==code
+                inventory_status = inventory_list_data.loc[inventory_done_condition,"棚卸状況"].iloc[0]
+                if inventory_status in ["済", "要確認","修正済"]:
+                    st.error("既にこの商品は棚卸が完了しています")
+                else:
+                    st.session_state[session_key] = code
+            
+        else:
+            if not code in target_name["資材コード"].values:
+                st.error("この資材コードは登録されていません")
+            else:
+                st.session_state[session_key] = code
+
+#条件別検索用関数
+def search_by_pattern(form_name,sub_header_name,session_key):
+    with st.form(form_name, clear_on_submit=True,enter_to_submit=False):
+            st.subheader(sub_header_name)
+            if sub_header_name=="使用会社":
+                select_name=["A会社","B会社","その他"]
+                select=st.radio("使用会社を選択してください",select_name,horizontal=True)
+            elif sub_header_name=="形区分":
+                select_name=["A：製造","B：品管","C：事務所","D：物流"]
+                select=st.radio("形区分を選択してください",select_name,horizontal=True)
+            submitted=st.form_submit_button("検索")#調べる項目を増やすときはここに追加
+    if submitted:
+        st.session_state[session_key]=select
+        condition=data[sub_header_name]==st.session_state[session_key]
+        if condition.any():
+            st.subheader(f"商品情報　{select}")
+            st.dataframe(data.loc[condition,["資材コード","品名","型式・寸法","在庫数","最低在庫数","使用会社","形区分"]],hide_index=True)
+        else:
+            st.error(f"{st.session_state[session_key]}の商品は登録されていません")
 
 #商品データ比較用関数
 def data_comparison():
@@ -459,60 +513,6 @@ def stock_update(column_name,update_name):
 #商品情報更新用関数（棚卸一覧用）
 def stock_update_inventory(column_name,update_name):
     inventory_list_data.loc[inventory_list_data["資材コード"]== st.session_state["update_search_code"],column_name]=update_name 
-
-#検索（在庫検索・更新・削除・不足在庫・入出庫取消に使用）
-def search_button_code(form_name,header_name,target_name,session_key):
-    #検索用フォーム→チェック→コード維持保存用関数
-    with st.form(form_name, clear_on_submit=True,enter_to_submit=False):
-        st.header(header_name)
-        st.write("資材コードを入力して検索ボタンを押してください")
-        code=st.text_input("資材コード")
-        submitted= st.form_submit_button("検索")
-        
-    if submitted:#更新用、削除用それぞれに判定される
-        if not code.isdigit() or len(code)!= 8:
-                st.error("資材コードは8桁の数字で入力してください") 
-        elif  header_name=="入出庫履歴" or header_name=="入出庫取消":
-            if not code in target_name["資材コード"].values:
-                st.error("この資材コードの入出庫履歴はありません")
-            else:
-                st.session_state[session_key] = code
-        elif header_name=="棚卸商品検索":
-            if not code in target_name["資材コード"].values:
-                st.error("この資材コードは登録されていません")
-            else:
-                inventory_done_condition=inventory_list_data["資材コード"]==code
-                inventory_status = inventory_list_data.loc[inventory_done_condition,"棚卸状況"].iloc[0]
-                if inventory_status in ["済", "要確認","修正済"]:
-                    st.error("既にこの商品は棚卸が完了しています")
-                else:
-                    st.session_state[session_key] = code
-            
-        else:
-            if not code in target_name["資材コード"].values:
-                st.error("この資材コードは登録されていません")
-            else:
-                st.session_state[session_key] = code
-
-#条件別検索用関数
-def search_by_pattern(form_name,sub_header_name,session_key):
-    with st.form(form_name, clear_on_submit=True,enter_to_submit=False):
-            st.subheader(sub_header_name)
-            if sub_header_name=="使用会社":
-                select_name=["A会社","B会社","その他"]
-                select=st.selectbox("使用会社を選択してください",select_name)
-            elif sub_header_name=="形区分":
-                select_name=["A：製造","B：品管","C：事務所","D：物流"]
-                select=st.selectbox("形区分を選択してください",select_name)
-            submitted=st.form_submit_button("検索")#調べる項目を増やすときはここに追加
-    if submitted:
-        st.session_state[session_key]=select
-        condition=data[sub_header_name]==st.session_state[session_key]
-        if condition.any():
-            st.subheader("商品情報")
-            st.dataframe(data.loc[condition,["資材コード","品名","型式・寸法","在庫数","最低在庫数","使用会社","形区分"]],hide_index=True)
-        else:
-            st.error(f"{st.session_state[session_key]}の商品は登録されていません")
 
 #発注書編集用関数
 def order_sheet(order_condition, order_quantity):
@@ -1269,9 +1269,9 @@ else:
                         up_item=st.text_input("品名")
                         up_model=st.text_input("型式・寸法")
                         up_min_stock=int(st.number_input("最低在庫数",min_value=0))
-                        up_company_name=["","A会社","B会社","その他"]
                         submitted_stock_update = st.form_submit_button("更新")
                     with right:
+                        up_company_name=["","A会社","B会社","その他"]
                         up_company=st.selectbox("使用会社",up_company_name)
                         up_section_name =["","A：製造","B：品管","C：事務所","D：物流"]
                         up_section=st.selectbox("形区分を選択してください",up_section_name)
