@@ -1708,11 +1708,11 @@ else:
                         check_inventory_count=int((inventory_list_data["棚卸状況"]=="未").sum())
                         checked_inventory_count=int((inventory_list_data["棚卸状況"]=="済").sum())
                         attention_inventory_count=int((inventory_list_data["棚卸状況"]=="要確認").sum())
+                        correction_inventory_count=int((inventory_list_data["棚卸状況"]=="修正済").sum())
+                        
                         st.subheader(f"未棚卸一覧　{check_inventory_count}/{inventory_count}")
-                        st.write(f"実施率：{int((checked_inventory_count+attention_inventory_count)/inventory_count*100)}%　要確認：{attention_inventory_count}件")
                         checked_inventory_data = inventory_list_data[
-                            inventory_list_data["棚卸状況"]== "未"
-                        ]
+                            inventory_list_data["棚卸状況"]== "未"]
             
                         if checked_inventory_data.empty:
                             st.info("棚卸完了済みです")
@@ -1720,8 +1720,12 @@ else:
                             st.dataframe(
                                 checked_inventory_data.drop(columns=["日時","棚卸在庫数","在庫数との差異"]),
                                 hide_index=True,
-                                use_container_width=True
-                            )
+                                use_container_width=True)
+                        st.markdown(f"<h4>実施率：{int((checked_inventory_count+attention_inventory_count+correction_inventory_count)/inventory_count*100)}%</h4>",
+                                                                                    unsafe_allow_html=True)
+                        st.write(f"　済：{checked_inventory_count}件　修正済：{correction_inventory_count}件　要確認：{attention_inventory_count}件")
+                        if attention_inventory_count>0:
+                            st.error("棚卸状況が要確認の商品があるため、資材担当に連絡してください")
         else:               
             st.warning("棚卸期間外のため利用できません")
         
