@@ -127,7 +127,7 @@ def stock_in_out_check(stock_typ):#入出庫チェック用関数（記録用関
             #品名列のデータを、すべて文字列型へ変換
             #.str.contains()は、完全一致ではなく「その文字がどこかに含まれているか」を確認する機能
             #na=False:品名が空欄のデータをFalse これがないと、空欄デ
-            # #ータが含まれている場合に判定でエラーになる可能性がある
+            # データが含まれている場合に判定でエラーになる可能性がある
             #最終リスト化
 
             # 類似検索するための品名一覧
@@ -898,6 +898,14 @@ def cancel_type_check(cancel_type,cancel_condition,cancel_amount,cancel_code):
             save()
             history_save(cancel_condition, cancel_amount, cancel_item , cancel_type+"取消", cancel_current_stock ,"━")
             st.success("取消が実行されました")
+#更新ボタン用関数
+def clear_search_state():
+    st.session_state.pop("update_search_code", None)
+    st.session_state.pop("delete_search_code", None)
+    st.session_state.pop("order_search_code", None)
+    st.session_state.pop("cancel_change_search_code", None)
+    st.session_state.pop("correction_search_code", None)
+    st.session_state.pop("inventory_search_code", None)
 #ここから実行コード
 
 #ログイン画面
@@ -1301,6 +1309,7 @@ else:
                         inventory_save()
                         save()
                         data_comparison()
+                        st.session_state.pop("update_search_code", None)
                         st.subheader("今回の更新情報")
                         for update_note in update_notes:#
                             st.write(f"◆{update_note}")
@@ -1330,6 +1339,7 @@ else:
                         inventory_save()
                         save()
                         data_comparison()
+                        st.session_state.pop("delete_search_code", None)
                         st.success("上記の情報は削除されました")
                     else:
                         st.warning("確認欄にチェックを入れてください")
@@ -1412,6 +1422,7 @@ else:
                                 else:
                                     save_delivery_date = "━"
                                 order_save(order_condition,"発注",order_date,save_delivery_date, order_quantity)
+                                st.session_state.pop("order_search_code", None)
                                 st.success("下記の通り、発注されました、発注書をダウンロードしてください")
                                 st.dataframe(data.loc[order_condition,
                                                         ["資材コード","品名","型式・寸法","発注日","納入予定日","発注数量","単価（税抜）","発注元"]]
@@ -1462,9 +1473,9 @@ else:
                             order_date = st.date_input("発注日", value=None)
                             delivery_date = st.date_input("納入予定日" ,value=None)
                             order_quantity = st.number_input("発注数量",value=0,min_value=0)
-
-                            submitted_order_cancel = st.form_submit_button("発注取消")
                             submitted_order_change = st.form_submit_button("発注内容変更")
+                            submitted_order_cancel = st.form_submit_button("発注取消")
+                            
                             if submitted_order_cancel or submitted_order_change:
                                 changed = False
                                 if submitted_order_cancel:
@@ -1505,6 +1516,7 @@ else:
                                         if current_stock + order_quantity< min_stock:
                                             st.warning("※納入後も最低在庫数を下回ります。発注数量を確認してください")
                                     save()
+                                    st.session_state.pop("cancel_change_search_code", None)
                                     st.dataframe(data.loc[cancel_change_condition].drop(columns=["使用会社","形区分","発注元"]),hide_index=True)
                     else:
                         st.error("この商品は発注されていません")
@@ -1587,6 +1599,7 @@ else:
                             "在庫数との差異",
                             "棚卸状況"]],
                     hide_index=True)
+    
             search_button_code("stock_correction_search","在庫修正",data,"correction_search_code")
             if "correction_search_code" in st.session_state:
                 condition=data["資材コード"]==st.session_state["correction_search_code"]
@@ -1641,6 +1654,7 @@ else:
                                     inventory_save()
                                     save()
                                     st.success("在庫数の修正が完了しました、棚卸データもご確認ください")
+                                    st.session_state.pop("correction_search_code", None)
                                     st.dataframe(data.loc[condition,["資材コード","品名","型式・寸法","在庫数"]],hide_index=True)
                                     st.dataframe(inventory_list_data.loc[inventory_condition,["棚卸在庫数","在庫数との差異","棚卸状況"]],hide_index=True)
             
@@ -1649,6 +1663,7 @@ else:
                                 history_save(condition, correction_amount, item_name,"修正",correction_comparison ,"ー",correction_reason)
                                 save()
                                 st.success("在庫数の修正が完了しました")
+                                st.session_state.pop("correction_search_code", None)
                                 st.dataframe(data.loc[condition,["資材コード","品名","型式・寸法","在庫数"]],hide_index=True)
 
         else:
@@ -1690,9 +1705,11 @@ else:
                             #保存後に検索状態を削除
             with st.container(border=True):
                         inventory_count=len(inventory_list_data)
-                        checked_inventory_count=int((inventory_list_data["棚卸状況"]=="未").sum())
-                        st.subheader(f"未棚卸一覧　{checked_inventory_count}/{inventory_count}")
-                        
+                        check_inventory_count=int((inventory_list_data["棚卸状況"]=="未").sum())
+                        checked_inventory_count=int((inventory_list_data["棚卸状況"]=="済").sum())
+                        attention_inventory_count=int((inventory_list_data["棚卸状況"]=="要確認").sum())
+                        st.subheader(f"未棚卸一覧　{check_inventory_count}/{inventory_count}")
+                        st.write(f"実施率：{int((checked_inventory_count+attention_inventory_count)/inventory_count*100)}%　要確認：{attention_inventory_count}件")
                         checked_inventory_data = inventory_list_data[
                             inventory_list_data["棚卸状況"]== "未"
                         ]
@@ -1701,7 +1718,7 @@ else:
                             st.info("棚卸完了済みです")
                         else:
                             st.dataframe(
-                                checked_inventory_data,
+                                checked_inventory_data.drop(columns=["日時","棚卸在庫数","在庫数との差異"]),
                                 hide_index=True,
                                 use_container_width=True
                             )
@@ -1734,14 +1751,17 @@ else:
 
     #更新ボタン
     button_col, message_col = st.columns([2, 2])
+
     with button_col:
-        submitted = st.button("※画面を最新状態にする")
+        submitted = st.button(
+            "※画面を最新状態にする",
+            on_click=clear_search_state
+        )#()を付けると関数が強制実行される
 
     with message_col:
         if submitted:
-            st.success("更新しました")
+            st.success("画面を更新しました")
 
-                                                        
 
                         
 
