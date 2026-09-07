@@ -359,7 +359,7 @@ def history_search(search_code_name):
         condition=history_data["資材コード"]==st.session_state[search_code_name]
         display_count = st.selectbox("表示件数",[10, 20, 50])
         display_data = history_data.loc[condition].copy()
-        display_data["日時"] = pd.to_datetime(display_data["日時"]).dt.date
+        display_data["日時"] = pd.to_datetime(display_data["日時"])
         display_data = (display_data.sort_values("日時", ascending=False).head(display_count).sort_values("日時", ascending=True))
         item_name=history_data.loc[condition,"品名"].iloc[0]
         st.write(f"資材コード：{st.session_state[search_code_name]}")
@@ -367,7 +367,6 @@ def history_search(search_code_name):
         st.dataframe(display_data.drop(columns=["資材コード", "品名"]), hide_index=True)
         #history_data.loc[condition] で対象の履歴だけ取り出す
         #→ copy() で表示用にコピー
-        #→ コピー側の「日時」だけ日付に変更
         #→ 表示件数を決める
         #→ 新しい順に並べ替える
         #→ 表示件数分のデータが入る
