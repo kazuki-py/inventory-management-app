@@ -1019,6 +1019,9 @@ else:
                     data=inventory_data)
 
                 st.write(f"現在の状態：{inventory_data["棚卸モード"].iloc[0]}")
+                st.markdown(
+                            f"<h4>現在の状態：<span style='color:red;'>{inventory_data["棚卸モード"].iloc[0]}</span></h4>",
+                            unsafe_allow_html=True)
 
             #保存データエラー検出
             with col2:  
