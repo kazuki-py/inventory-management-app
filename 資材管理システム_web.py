@@ -1005,23 +1005,31 @@ else:
             col1,col2=st.columns([1,3])
             #棚卸モード
             with col1:     
-                inventory_btton= st.button("棚卸モード切替")
-                if inventory_btton:
+                inventory_button= st.button("棚卸モード切替")
+                if inventory_button:
                     if  inventory_data["棚卸モード"].iloc[0]=="OFF":
-                        inventory_data.loc[inventory_data["棚卸モード"]=="OFF","棚卸モード"]="ON"
-                        st.success("棚卸モードをONにしました")
+                        inventory_data.loc[:,"棚卸モード"]="ON"
+                        #[:,"棚卸モード"]:,　棚卸モード列の全てを
+                        st.warning("棚卸モードをONにしました")
                     else:
-                        inventory_data.loc[inventory_data["棚卸モード"]=="ON","棚卸モード"]="OFF"
+                        inventory_data.loc[:,"棚卸モード"]="OFF"
                         st.success("棚卸モードをOFFにしました")
                     conn.update(
                     spreadsheet=SHEET_URL,
                     worksheet="棚卸モード切替用（触らない）",
                     data=inventory_data)
+                    st.cache_data.clear()
 
-                st.write(f"現在の状態：{inventory_data["棚卸モード"].iloc[0]}")
-                st.markdown(
-                            f"<h4>現在の状態：<span style='color:red;'>{inventory_data["棚卸モード"].iloc[0]}</span></h4>",
-                            unsafe_allow_html=True)
+                current_mode = inventory_data["棚卸モード"].iloc[0]
+
+                if current_mode=="ON":
+                    st.markdown(
+                                f"<p>現在の状態：<span style='color:red; font-weight:bold;'>{current_mode}</span></p>",
+                                unsafe_allow_html=True)
+                elif current_mode=="OFF":
+                    st.markdown(
+                                f"<p>現在の状態：<span style='color:green;font-weight:bold;'>{current_mode}</span></p>",
+                                unsafe_allow_html=True)
 
             #保存データエラー検出
             with col2:  
