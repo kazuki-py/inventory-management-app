@@ -1713,6 +1713,9 @@ else:
                             inventory_save()
                             st.session_state.pop("inventory_search_code",None)
                             #保存後に検索状態を削除
+            if (inventory_data["棚卸モード"].iloc[0] == "ON" and st.session_state["login_role"] != "管理者"):
+                st.warning("棚卸数量を間違えた場合は資材担当に連絡してください")
+
             with st.container(border=True):
                         inventory_count=len(inventory_list_data)
                         check_inventory_count=int((inventory_list_data["棚卸状況"]=="未").sum())
@@ -1739,29 +1742,63 @@ else:
         else:               
             st.warning("棚卸期間外のため利用できません")
         
-          
         if (inventory_data["棚卸モード"].iloc[0] == "ON" and st.session_state["login_role"] == "管理者"):
-            with st.form("inventory_reset_form",clear_on_submit=True,enter_to_submit=False):
-                st.subheader("管理者用")
-                st.write("棚卸終了後、情報をリセットしてから棚卸モードをOFFにしてください")
-                inventory_reset_check = st.checkbox("棚卸情報をリセットする場合はこちらにチェック")
-                inventory_reset=st.form_submit_button("棚卸情報リセット")
-                unfinished_condition = (inventory_list_data["棚卸状況"].isin(["未", "要確認"]))
+            with st.container(border=True):
+                st.subheader("管理者用機能")
+                with st.form("inventory_correction_form",clear_on_submit=True,enter_to_submit=False):
+                    st.subheader("棚卸情報リセット（修正時）")
+                    st.write("資材コードを入力して修正ボタンを押してください  \n棚卸情報をリセットします")
+                    code=st.text_input("資材コード").strip()
+                    inventory_correction= st.form_submit_button("修正")
+                    
+                    if inventory_correction:
+                        condition=inventory_list_data["資材コード"]==code
+                        if not code.isdigit() or len(code)!= 8:
+                                st.error("資材コードは8桁の数字で入力してください") 
+                        elif not code in inventory_list_data["資材コード"].values:
+                                st.error("この資材コードは登録されていません")
+                        elif inventory_list_data.loc[condition,"棚卸状況"].iloc[0]=="未":
+                                st.error("棚卸情報が登録されていません") 
+                        elif inventory_list_data.loc[condition,"棚卸状況"].iloc[0]=="修正済":
+                                st.error("棚卸状況が修正済の為、リセットできません") 
+                        else:
+                            inventory_list_data.loc[condition,"日時"]=None
+                            inventory_list_data.loc[condition,"棚卸在庫数"]=None
+                            inventory_list_data.loc[condition,"在庫数との差異"]=None
+                            inventory_list_data.loc[condition,"棚卸状況"]="未"
+                            inventory_save()
+                            st.success("対象の棚卸情報がリセットされました")
+                            st.dataframe(inventory_list_data.loc[condition],hide_index=True)  
 
-                if inventory_reset:
-                    if not inventory_reset_check:
-                        st.error("リセットする場合はチェックを入れてください")
+                with st.form("inventory_reset_form",clear_on_submit=True,enter_to_submit=False):
+                    st.subheader("棚卸情報リセット（棚卸終了時）")
+                    st.write("棚卸終了後、情報をリセットしてから棚卸モードをOFFにしてください")
+                    inventory_reset_check = st.checkbox("棚卸情報をリセットする場合はこちらにチェック")
+                    inventory_reset=st.form_submit_button("棚卸情報リセット")
+                    unfinished_condition = (inventory_list_data["棚卸状況"].isin(["未", "要確認"]))
 
-                    elif unfinished_condition.any():
-                        st.error("未完了または要確認の商品があるため、リセットできません")
-                    else:
-                        inventory_list_data["日時"]=None
-                        inventory_list_data["棚卸在庫数"]=None
-                        inventory_list_data["在庫数との差異"]=None
-                        inventory_list_data["棚卸状況"]="未"
-                        inventory_save()
-                        st.success("棚卸情報がリセットされました")
-                        st.dataframe(inventory_list_data)
+                    if inventory_reset:
+                        if not inventory_reset_check:
+                            st.error("リセットする場合はチェックを入れてください")
+
+                        elif unfinished_condition.any():
+                            st.error("未完了または要確認の商品があるため、リセットできません")
+                        else:
+                            inventory_list_data["日時"]=None
+                            inventory_list_data["棚卸在庫数"]=None
+                            inventory_list_data["在庫数との差異"]=None
+                            inventory_list_data["棚卸状況"]="未"
+                            inventory_save()
+                            st.success("棚卸情報がリセットされました")
+                            st.dataframe(inventory_list_data)
+
+                
+                        
+                        
+
+
+        
+
 
     #更新ボタン
     button_col, message_col = st.columns([2, 2])
